@@ -3,7 +3,7 @@ import csv
 import time
 
 # Cấu hình COM port
-port = 'COM8'    # Đổi đúng COM bạn đang dùng
+port = 'COM15'    # Đổi đúng COM bạn đang dùng
 baudrate = 921600
 timeout = 1
 

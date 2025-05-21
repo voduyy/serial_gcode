@@ -8,6 +8,7 @@ import time
 from serial.tools import list_ports
 import serial
 from serial import threaded
+import queue
 
 ENCODING = 'utf-8'
 IMG_WIDTH = 640
@@ -20,25 +21,41 @@ class SerialCommunication(serial.threaded.LineReader):
     def __init__(self):
         super().__init__()
         self.ok_received = False
+        self.ok_process = False
+        self.count = 0
 
     def handle_line(self, line):
         print("Received:", line)
         if line.strip() == "ok":
-            self.ok_received = True
+            self.count += 1
+            if self.count == 1:
+                self.ok_received = True
+            elif self.count > 1:
+                self.ok_process = True
 
-    def wait_for_ok(self, timeout=2):
+    def wait_for_receive_ok(self, timeout=2):
         start = time.time()
         self.ok_received = False
+        self.count = 0
         while time.time() - start < timeout:
             if self.ok_received:
                 return True
-            time.sleep(0.05)
+        return False
+
+    def wait_for_process_ok(self, timeout=2):
+        start = time.time()
+        if not self.ok_received: return False
+        self.ok_process = False
+        self.count = 0
+        while time.time() - start < timeout:
+            if self.ok_process:
+                return True
         return False
 
 def find_uart_port():
     ports = list_ports.comports()
     for port, desc, hwid in ports:
-        if "ttyACM0" in port or "USB" in port or "ACM" in port:
+        if "ttyACM0" in port or "USB" in port or "ACM" in port or "COM" in port:
             return port
     return None
 
@@ -47,9 +64,15 @@ def send_uart_command(protocol, cmd, wait_ok=True, retries=3):
         protocol.ok_received = False
         protocol.transport.write(f"{cmd}\n".encode(ENCODING))
         print("Sent:", cmd)
-        if not wait_ok or protocol.wait_for_ok():
+        if not wait_ok or protocol.wait_for_receive_ok():
             return True
-        time.sleep(0.3)
+    return False
+
+def receive_uart_signal(protocol, retries=3):
+    for attempt in range(retries):
+        protocol.ok_process = False
+        if protocol.wait_for_receive_ok() and protocol.wait_for_process_ok():
+            return True
     return False
 
 def reset_system(protocol):
@@ -60,7 +83,7 @@ def run_initialization_sequence(protocol):
     for cmd in cmds:
         send_uart_command(protocol, cmd)
 
-def read_gcode_file(filename="gcode.txt"):
+def read_gcode_file(filename="6_gcode.txt"):
     lines = []
     with open(filename, "r") as f:
         for line in f:
@@ -71,11 +94,35 @@ def read_gcode_file(filename="gcode.txt"):
                 lines.append(line)
     return lines
 
-def send_gcode_file(protocol, gcode_lines):
-    total = len(gcode_lines)
-    for idx, line in enumerate(gcode_lines, 1):
-        success = send_uart_command(protocol, line)
-        print(f"{'✅' if success else '❌'} Sent [{idx}/{total}]: {line}")
+def send_gcode_file(protocol, gcode_lines, gcode_queue, total_cmds, shared_state, queue_lock):
+    while shared_state['sent'] < total_cmds:
+        if not gcode_queue.full():
+            with queue_lock:
+                line = gcode_lines[shared_state['sent']]
+                success = send_uart_command(protocol, line)
+                if success:
+                    print(f"✅ Sent [{shared_state['sent'] + 1}/{total_cmds}]: {line}")
+                    gcode_queue.put((shared_state['sent'], line))
+                    shared_state['sent'] += 1
+                else:
+                    print(f"❌ Failed to send [{shared_state['sent'] + 1}/{total_cmds}]: {line}")
+        else:
+            time.sleep(0.1)  # tránh chiếm CPU
+
+def receive_gcode_response(protocol, gcode_lines, gcode_queue, total_cmds, shared_state, queue_lock):
+    while shared_state['received'] < total_cmds:
+        if not gcode_queue.full():
+            time.sleep(0.1)
+            continue
+
+        with queue_lock:
+            success = receive_uart_signal(protocol)
+            if success:
+                shared_state['received'] += 1
+                line = gcode_queue.get()
+                print(f"✅ Done [{shared_state['received']}/{total_cmds}]: {line}")
+            else:
+                print("❌ No done signal from STM32")
 
 class App:
 
@@ -87,6 +134,10 @@ class App:
         self.running = True
         self.last_frame = None
         self.show_mirror = True
+        #Process queue commands
+        self.command_queue = queue.Queue(maxsize=16)
+        self.queue_lock = threading.Lock()
+        self.receive_done_signal = threading.Event()
 
         self.build_gui()
         self.start_serial()
@@ -204,7 +255,14 @@ class App:
     def do_send_gcode(self):
         if self.protocol:
             gcode_lines = read_gcode_file()
-            threading.Thread(target=send_gcode_file, args=(self.protocol, gcode_lines), daemon=True).start()
+            total_cmds = len(gcode_lines)
+            self.command_queue = queue.Queue(maxsize=16)
+            shared_state = {'idx': 0, 'sent': 0, 'received': 0}
+            #Thread xử lý việc gửi lệnh
+            thread2 = threading.Thread(target=send_gcode_file, args=(self.protocol, gcode_lines, self.command_queue, total_cmds, shared_state, self.queue_lock), daemon=True).start()
+            #Thread xử lý việc nhận lệnh
+            thread3 = threading.Thread(target=receive_gcode_response, args=(self.protocol, gcode_lines, self.command_queue, total_cmds, shared_state, self.queue_lock), daemon=True).start()
+
 
     def on_close(self):
         self.running = False
