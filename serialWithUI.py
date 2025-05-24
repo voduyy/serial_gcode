@@ -1,4 +1,5 @@
 import tkinter as tk
+from sys import maxsize
 from tkinter import filedialog, messagebox
 from tkinter import ttk
 from PIL import Image, ImageTk
@@ -9,7 +10,6 @@ from serial.tools import list_ports
 import serial
 from serial import threaded
 import queue
-
 ENCODING = 'utf-8'
 IMG_WIDTH = 640
 IMG_HEIGHT = 480
@@ -21,36 +21,52 @@ class SerialCommunication(serial.threaded.LineReader):
     def __init__(self):
         super().__init__()
         self.ok_received = False
-        self.ok_process = False
-        self.count = 0
+        self.done_queue = queue.Queue()
+        self.ok_lock = threading.Lock()
 
     def handle_line(self, line):
         print("Received:", line)
-        if line.strip() == "ok":
-            self.count += 1
-            if self.count == 1:
+        line = line.strip()
+        if line == "ok":
+            with self.ok_lock:
                 self.ok_received = True
-            elif self.count > 1:
-                self.ok_process = True
+        elif line == "done":
+            self.done_queue.put(1)
 
     def wait_for_receive_ok(self, timeout=2):
         start = time.time()
-        self.ok_received = False
-        self.count = 0
+        with self.ok_lock:
+            self.ok_received = False
         while time.time() - start < timeout:
-            if self.ok_received:
-                return True
+            with self.ok_lock:
+                if self.ok_received:
+                    return True
+            time.sleep(0.01)
         return False
 
-    def wait_for_process_ok(self, timeout=2):
+    def wait_for_receive_done(self, timeout=1):
         start = time.time()
-        if not self.ok_received: return False
-        self.ok_process = False
-        self.count = 0
+        self.done_received = False
         while time.time() - start < timeout:
-            if self.ok_process:
+            if self.done_received:
                 return True
+            time.sleep(0.01)
         return False
+
+    def get_done_count(self, max_count=16, timeout=1.0):
+        """Đọc các tín hiệu 'done' từ hàng đợi."""
+        count = 0
+        end_time = time.time() + timeout
+        while count < max_count:
+            remaining = end_time - time.time()
+            if remaining <= 0:
+                break
+            try:
+                self.done_queue.get(timeout=remaining)
+                count += 1
+            except queue.Empty:
+                break
+        return count
 
 def find_uart_port():
     ports = list_ports.comports()
@@ -63,15 +79,8 @@ def send_uart_command(protocol, cmd, wait_ok=True, retries=3):
     for attempt in range(retries):
         protocol.ok_received = False
         protocol.transport.write(f"{cmd}\n".encode(ENCODING))
-        print("Sent:", cmd)
+        print("Sending:", cmd)
         if not wait_ok or protocol.wait_for_receive_ok():
-            return True
-    return False
-
-def receive_uart_signal(protocol, retries=3):
-    for attempt in range(retries):
-        protocol.ok_process = False
-        if protocol.wait_for_receive_ok() and protocol.wait_for_process_ok():
             return True
     return False
 
@@ -94,35 +103,52 @@ def read_gcode_file(filename="6_gcode.txt"):
                 lines.append(line)
     return lines
 
-def send_gcode_file(protocol, gcode_lines, gcode_queue, total_cmds, shared_state, queue_lock):
-    while shared_state['sent'] < total_cmds:
-        if not gcode_queue.full():
-            with queue_lock:
-                line = gcode_lines[shared_state['sent']]
-                success = send_uart_command(protocol, line)
-                if success:
-                    print(f"✅ Sent [{shared_state['sent'] + 1}/{total_cmds}]: {line}")
-                    gcode_queue.put((shared_state['sent'], line))
-                    shared_state['sent'] += 1
-                else:
-                    print(f"❌ Failed to send [{shared_state['sent'] + 1}/{total_cmds}]: {line}")
-        else:
-            time.sleep(0.1)  # tránh chiếm CPU
+def is_motion_command(cmd):
+    return cmd.startswith("G0") or cmd.startswith("G1")
 
-def receive_gcode_response(protocol, gcode_lines, gcode_queue, total_cmds, shared_state, queue_lock):
-    while shared_state['received'] < total_cmds:
-        if not gcode_queue.full():
-            time.sleep(0.1)
-            continue
-
-        with queue_lock:
-            success = receive_uart_signal(protocol)
-            if success:
+def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package):
+    size = min(16 - shared_state['on_flight'], package)
+    for _ in range(size):
+        if shared_state['sent'] < total_cmds and shared_state['on_flight'] < 16:
+            cmd = gcode_lines[shared_state['sent']]
+            success = send_uart_command(protocol, cmd)
+            if success and is_motion_command(cmd):
+                shared_state['sent'] += 1
+                shared_state['on_flight'] += 1
+            elif success and not is_motion_command(cmd):
+                shared_state['sent'] += 1
                 shared_state['received'] += 1
-                line = gcode_queue.get()
-                print(f"✅ Done [{shared_state['received']}/{total_cmds}]: {line}")
-            else:
-                print("❌ No done signal from STM32")
+        else:
+            break
+
+def send_gcode_file(protocol, gcode_lines, gcode_queue, total_cmds, shared_state, queue_lock, receive_done_signal):
+    # Gửi ban đầu
+    send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16)
+
+    while shared_state['sent'] < total_cmds:
+        receive_done_signal.wait()  # Đợi bên nhận báo có "done"
+        with queue_lock:
+            send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16)
+            print(f"📤 Sent: {shared_state['sent']}")
+            print(f"📡 On-flight: {shared_state['on_flight']}")
+            receive_done_signal.clear()  # Reset cờ
+
+    print("🎉 G-code transmission complete.")
+
+
+def receive_gcode_response(protocol, gcode_lines, gcode_queue, total_cmds, shared_state, queue_lock, receive_done_signal):
+    while shared_state['received'] < total_cmds or shared_state['on_flight'] > 0 :
+        done_count = protocol.get_done_count(timeout=1.0)
+        if done_count:
+            with queue_lock:
+                shared_state['received'] += done_count
+                shared_state['on_flight'] -= done_count
+                print(f"✅ Done: {shared_state['received']}")
+                print(f"📉 On-flight: {shared_state['on_flight']}")
+                receive_done_signal.set()
+
+    print("🎉 Received all G-code")
+
 
 class App:
 
@@ -256,13 +282,25 @@ class App:
         if self.protocol:
             gcode_lines = read_gcode_file()
             total_cmds = len(gcode_lines)
-            self.command_queue = queue.Queue(maxsize=16)
-            shared_state = {'idx': 0, 'sent': 0, 'received': 0}
+            shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
             #Thread xử lý việc gửi lệnh
-            thread2 = threading.Thread(target=send_gcode_file, args=(self.protocol, gcode_lines, self.command_queue, total_cmds, shared_state, self.queue_lock), daemon=True).start()
+            thread2 = threading.Thread(target=send_gcode_file, args=(self.protocol, gcode_lines, self.command_queue, total_cmds, shared_state, self.queue_lock, self.receive_done_signal), daemon=True)
             #Thread xử lý việc nhận lệnh
-            thread3 = threading.Thread(target=receive_gcode_response, args=(self.protocol, gcode_lines, self.command_queue, total_cmds, shared_state, self.queue_lock), daemon=True).start()
-
+            thread3 = threading.Thread(
+                target=receive_gcode_response,
+                args=(self.protocol, gcode_lines, self.command_queue, total_cmds, shared_state, self.queue_lock,
+                      self.receive_done_signal),
+                daemon=True
+            )            #Bắt đầu
+            start_time = time.time()
+            thread2.start()
+            thread3.start()
+            #Đợi kết thúc
+            thread2.join()
+            thread3.join()
+            end_time = time.time()
+            total_time = end_time - start_time
+            print(f"🎉 G-code transmission complete in {total_time:.2f} seconds.")
 
     def on_close(self):
         self.running = False
