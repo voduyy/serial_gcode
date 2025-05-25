@@ -1,5 +1,4 @@
 import tkinter as tk
-from sys import maxsize
 from tkinter import filedialog, messagebox
 from tkinter import ttk
 from PIL import Image, ImageTk
@@ -10,14 +9,14 @@ from serial.tools import list_ports
 import serial
 from serial import threaded
 import queue
+import os
+
 ENCODING = 'utf-8'
 IMG_WIDTH = 640
 IMG_HEIGHT = 480
 
-
 class SerialCommunication(serial.threaded.LineReader):
     TERMINATOR = b'\r\n'
-
     def __init__(self):
         super().__init__()
         self.ok_received = False
@@ -25,12 +24,11 @@ class SerialCommunication(serial.threaded.LineReader):
         self.ok_lock = threading.Lock()
 
     def handle_line(self, line):
-        print("Received:", line)
-        line = line.strip()
-        if line == "ok":
+        print("Received:", line.strip())
+        if line.strip() == "ok":
             with self.ok_lock:
                 self.ok_received = True
-        elif line == "done":
+        elif line.strip() == "done":
             self.done_queue.put(1)
 
     def wait_for_receive_ok(self, timeout=2):
@@ -41,20 +39,10 @@ class SerialCommunication(serial.threaded.LineReader):
             with self.ok_lock:
                 if self.ok_received:
                     return True
-            time.sleep(0.01)
-        return False
-
-    def wait_for_receive_done(self, timeout=1):
-        start = time.time()
-        self.done_received = False
-        while time.time() - start < timeout:
-            if self.done_received:
-                return True
-            time.sleep(0.01)
+            time.sleep(0.0001)
         return False
 
     def get_done_count(self, max_count=16, timeout=1.0):
-        """Đọc các tín hiệu 'done' từ hàng đợi."""
         count = 0
         end_time = time.time() + timeout
         while count < max_count:
@@ -85,14 +73,17 @@ def send_uart_command(protocol, cmd, wait_ok=True, retries=3):
     return False
 
 def reset_system(protocol):
+    # send_uart_command(protocol, chr(0x18))
     send_uart_command(protocol, "$X")
+    send_uart_command(protocol, "G28")
+    send_uart_command(protocol, "F2700")
 
 def run_initialization_sequence(protocol):
-    cmds = ["$X", "$HX", "$HY", "$HA", "$HB", "$27=0.2", "$HZ"]
+    cmds = ["$X", "$HX", "$HY", "$HZ", "$HA", "$HB"]
     for cmd in cmds:
         send_uart_command(protocol, cmd)
 
-def read_gcode_file(filename="6_gcode.txt"):
+def read_gcode_file(filename):
     lines = []
     with open(filename, "r") as f:
         for line in f:
@@ -106,52 +97,47 @@ def read_gcode_file(filename="6_gcode.txt"):
 def is_motion_command(cmd):
     return cmd.startswith("G0") or cmd.startswith("G1")
 
-def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package):
+def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package, stop_event):
     size = min(16 - shared_state['on_flight'], package)
     for _ in range(size):
+        if stop_event.is_set():
+            # print("🛑 Dừng giữa batch gửi.")
+            break
         if shared_state['sent'] < total_cmds and shared_state['on_flight'] < 16:
             cmd = gcode_lines[shared_state['sent']]
             success = send_uart_command(protocol, cmd)
             if success and is_motion_command(cmd):
                 shared_state['sent'] += 1
                 shared_state['on_flight'] += 1
-            elif success and not is_motion_command(cmd):
+            elif success:
                 shared_state['sent'] += 1
                 shared_state['received'] += 1
-        else:
+
+def send_gcode_file(protocol, gcode_lines, gcode_queue, total_cmds, shared_state,
+                    queue_lock, receive_done_signal, stop_event):
+    send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16, stop_event=stop_event)
+    while shared_state['sent'] < total_cmds and not stop_event.is_set():
+        receive_done_signal.wait()
+        if stop_event.is_set():
+            # print("🛑 Stop yêu cầu - dừng gửi")
             break
-
-def send_gcode_file(protocol, gcode_lines, gcode_queue, total_cmds, shared_state, queue_lock, receive_done_signal):
-    # Gửi ban đầu
-    send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16)
-
-    while shared_state['sent'] < total_cmds:
-        receive_done_signal.wait()  # Đợi bên nhận báo có "done"
         with queue_lock:
-            send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16)
-            print(f"📤 Sent: {shared_state['sent']}")
-            print(f"📡 On-flight: {shared_state['on_flight']}")
-            receive_done_signal.clear()  # Reset cờ
+            send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16, stop_event=stop_event)
+            # print(f"📤 Sent: {shared_state['sent']}  📡 On-flight: {shared_state['on_flight']}")
+            receive_done_signal.clear()
 
-    print("🎉 G-code transmission complete.")
-
-
-def receive_gcode_response(protocol, gcode_lines, gcode_queue, total_cmds, shared_state, queue_lock, receive_done_signal):
-    while shared_state['received'] < total_cmds or shared_state['on_flight'] > 0 :
+def receive_gcode_response(protocol, gcode_lines, gcode_queue, total_cmds, shared_state,
+                           queue_lock, receive_done_signal, stop_event):
+    while (shared_state['received'] < total_cmds or shared_state['on_flight'] > 0) and not stop_event.is_set():
         done_count = protocol.get_done_count(timeout=1.0)
         if done_count:
             with queue_lock:
                 shared_state['received'] += done_count
                 shared_state['on_flight'] -= done_count
-                print(f"✅ Done: {shared_state['received']}")
-                print(f"📉 On-flight: {shared_state['on_flight']}")
+                # print(f"✅ Done: {shared_state['received']}  📉 On-flight: {shared_state['on_flight']}")
                 receive_done_signal.set()
 
-    print("🎉 Received all G-code")
-
-
 class App:
-
     def __init__(self, root):
         self.root = root
         self.root.title("📟 G-code Control Panel")
@@ -160,17 +146,19 @@ class App:
         self.running = True
         self.last_frame = None
         self.show_mirror = True
-        #Process queue commands
         self.command_queue = queue.Queue(maxsize=16)
         self.queue_lock = threading.Lock()
         self.receive_done_signal = threading.Event()
+        self.stop_event = threading.Event()
+        self.shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
+        self.gcode_file_path = None
+        self.gcode_path_var = tk.StringVar(value="Chưa chọn file G-code")
 
         self.build_gui()
         self.start_serial()
         self.start_camera()
 
     def build_gui(self):
-        # Frame cho 2 hình ảnh
         img_frame = ttk.Frame(self.root)
         img_frame.pack(pady=10)
 
@@ -180,7 +168,6 @@ class App:
         self.right_img_label = tk.Label(img_frame)
         self.right_img_label.pack(side="left", padx=10)
 
-        # Frame chọn nguồn
         source_frame = ttk.Frame(self.root)
         source_frame.pack(pady=5)
 
@@ -191,45 +178,124 @@ class App:
         ttk.Button(source_frame, text="📂 Choose Image", command=self.choose_image).pack(side="left", padx=5)
         ttk.Button(source_frame, text="📸 Chụp hình", command=self.capture_frame).pack(side="left", padx=5)
 
-        # Frame nút chức năng
         button_frame = ttk.Frame(self.root)
         button_frame.pack(pady=10)
 
-        ttk.Button(button_frame, text="🏠 Homing", width=14, command=self.do_homing).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="🔄 Reset", width=14, command=self.do_reset).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="📤 Send G-code", width=14, command=self.do_send_gcode).pack(side="left", padx=5)
+        # 🔧 G-code file path + select button
+        gcode_frame = ttk.Frame(button_frame)
+        gcode_frame.pack(side="left", padx=5)
+        self.gcode_entry = ttk.Entry(gcode_frame, width=40, textvariable=self.gcode_path_var, state="readonly")
+        self.gcode_entry.pack(side="left")
+        ttk.Button(gcode_frame, text="📂", width=3, command=self.choose_gcode_file).pack(side="left", padx=2)
+
+        # Các nút điều khiển
+        ttk.Button(button_frame, text="📤 Send", width=12, command=self.do_send_gcode).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="🛑 Stop", width=12, command=self.do_stop).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="🔁 Continue", width=12, command=self.do_continue_gcode).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="🏠 Homing", width=12, command=self.do_homing).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="🔄 Reset", width=12, command=self.do_reset).pack(side="left", padx=5)
+
+        # Lệnh thủ công
+        manual_frame = ttk.Frame(self.root)
+        manual_frame.pack(pady=5)
+        self.manual_entry = ttk.Entry(manual_frame, width=40)
+        self.manual_entry.pack(side="left", padx=5)
+        ttk.Button(manual_frame, text="📨 Gửi lệnh", command=self.send_manual_command).pack(side="left", padx=5)
+
+    def choose_gcode_file(self):
+        filepath = filedialog.askopenfilename(filetypes=[("G-code files", "*.txt *.gcode"), ("All files", "*.*")])
+        if filepath:
+            self.gcode_file_path = filepath
+            self.gcode_path_var.set(filepath)
+            # print(f"📁 Đã chọn file G-code: {filepath}")
+
+    def do_send_gcode(self):
+        if not self.gcode_file_path:
+            messagebox.showerror("Lỗi", "Bạn chưa chọn file G-code.")
+            return
+        self.shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
+        threading.Thread(target=self.send_gcode_in_background, daemon=True).start()
+
+    def do_continue_gcode(self):
+        if self.gcode_file_path:
+            # print(f"🔁 Tiếp tục từ dòng {self.shared_state['sent']}")
+            self.stop_event.clear()
+            threading.Thread(target=self.send_gcode_in_background, daemon=True).start()
+
+    def do_stop(self):
+        self.stop_event.set()
+        # print("🛑 Dừng gửi.")
+        if self.protocol:
+            # # send_uart_command(self.protocol, chr(0x18))
+            # time.sleep(0.1)
+            send_uart_command(self.protocol, "$X")
+
+    def send_gcode_in_background(self):
+        gcode_lines = read_gcode_file(self.gcode_file_path)
+        total_cmds = len(gcode_lines)
+        self.stop_event.clear()
+        threading.Thread(target=send_gcode_file,
+                         args=(self.protocol, gcode_lines, self.command_queue, total_cmds,
+                               self.shared_state, self.queue_lock, self.receive_done_signal, self.stop_event),
+                         daemon=True).start()
+        threading.Thread(target=receive_gcode_response,
+                         args=(self.protocol, gcode_lines, self.command_queue, total_cmds,
+                               self.shared_state, self.queue_lock, self.receive_done_signal, self.stop_event),
+                         daemon=True).start()
+
+    def send_manual_command(self):
+        if self.protocol:
+            cmd = self.manual_entry.get().strip().upper()
+            if cmd in ["CTRL X", "CTRL+X"]:
+                self.protocol.transport.write(b'\x18')
+                # print("📨 Gửi: Ctrl+X (0x18)")
+            else:
+                send_uart_command(self.protocol, cmd)
+            self.manual_entry.delete(0, tk.END)
 
     def start_serial(self):
         port = find_uart_port()
         if not port:
-            messagebox.showerror("Error", "No UART port found!")
+            messagebox.showerror("Error", "Không tìm thấy cổng UART")
             return
         ser = serial.Serial(port, 115200, timeout=1)
         thread = serial.threaded.ReaderThread(ser, SerialCommunication)
         thread.start()
         self.protocol = thread.connect()[1]
-        time.sleep(2)
+        # time.sleep(2)
         send_uart_command(self.protocol, "$$", wait_ok=False)
 
     def start_camera(self):
-        # Automatically initialize camera
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
-            messagebox.showerror("Error", "Unable to access the camera.")
+            messagebox.showerror("Error", "Không thể mở camera.")
             return
         self.update_camera()
+
+    def update_camera(self):
+        if self.cap and self.cap.isOpened():
+            ret, frame = self.cap.read()
+            if ret:
+                self.last_frame = frame
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(rgb).resize((IMG_WIDTH, IMG_HEIGHT))
+                self.display_image(self.left_img_label, img)
+                if self.show_mirror:
+                    self.display_image(self.right_img_label, img)
+        if self.running:
+            self.root.after(30, self.update_camera)
 
     def switch_source(self):
         if self.source_var.get() == "camera":
             if self.cap is None:
                 self.cap = cv2.VideoCapture(0)
-            self.show_mirror = True  # Bật lại mirror khi chuyển về camera
+            self.show_mirror = True
             self.update_camera()
         else:
             if self.cap:
                 self.cap.release()
                 self.cap = None
-            self.show_mirror = False  # Không mirror nếu dùng ảnh
+            self.show_mirror = False
 
     def choose_image(self):
         filepath = filedialog.askopenfilename()
@@ -241,29 +307,9 @@ class App:
 
     def capture_frame(self):
         if self.last_frame is not None:
-            # Chuyển đổi frame sang RGB và resize
             img = Image.fromarray(cv2.cvtColor(self.last_frame, cv2.COLOR_BGR2RGB)).resize((IMG_WIDTH, IMG_HEIGHT))
-            # Hiển thị ảnh lên frame phải
             self.display_image(self.right_img_label, img)
             self.show_mirror = False
-        else:
-            print("Không có ảnh để chụp!")
-
-    def update_camera(self):
-        if self.cap and self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if ret:
-                self.last_frame = frame
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = Image.fromarray(rgb).resize((IMG_WIDTH, IMG_HEIGHT))
-
-                self.display_image(self.left_img_label, img)
-
-                if self.show_mirror:
-                    self.display_image(self.right_img_label, img)
-
-        if self.running:
-            self.root.after(30, self.update_camera)
 
     def display_image(self, label, img):
         imgtk = ImageTk.PhotoImage(img)
@@ -277,30 +323,6 @@ class App:
     def do_reset(self):
         if self.protocol:
             threading.Thread(target=reset_system, args=(self.protocol,), daemon=True).start()
-
-    def do_send_gcode(self):
-        if self.protocol:
-            gcode_lines = read_gcode_file()
-            total_cmds = len(gcode_lines)
-            shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
-            #Thread xử lý việc gửi lệnh
-            thread2 = threading.Thread(target=send_gcode_file, args=(self.protocol, gcode_lines, self.command_queue, total_cmds, shared_state, self.queue_lock, self.receive_done_signal), daemon=True)
-            #Thread xử lý việc nhận lệnh
-            thread3 = threading.Thread(
-                target=receive_gcode_response,
-                args=(self.protocol, gcode_lines, self.command_queue, total_cmds, shared_state, self.queue_lock,
-                      self.receive_done_signal),
-                daemon=True
-            )            #Bắt đầu
-            start_time = time.time()
-            thread2.start()
-            thread3.start()
-            #Đợi kết thúc
-            thread2.join()
-            thread3.join()
-            end_time = time.time()
-            total_time = end_time - start_time
-            print(f"🎉 G-code transmission complete in {total_time:.2f} seconds.")
 
     def on_close(self):
         self.running = False
