@@ -77,11 +77,23 @@ def reset_system(protocol):
     send_uart_command(protocol, "$X")
     send_uart_command(protocol, "G28")
     send_uart_command(protocol, "F2700")
+    done = protocol.get_done_count()
 
-def run_initialization_sequence(protocol):
+def run_initialization_sequence(protocol, stop_event):
     cmds = ["$X", "$HX", "$HY", "$HZ", "$HA", "$HB"]
     for cmd in cmds:
-        send_uart_command(protocol, cmd)
+        success = send_uart_command(protocol, cmd)
+    done = protocol.get_done_count()
+
+    # idx = 0
+    # while idx < len(cmds):
+    #     if stop_event.is_set():
+    #         # print("🛑 Stop yêu cầu - dừng gửi")
+    #         continue
+    #     cmd = cmds[idx]
+    #     success = send_uart_command(protocol, cmd)
+    #     if success and cmd == "$X" or protocol.get_done_count():
+    #         idx +=1
 
 def read_gcode_file(filename):
     lines = []
@@ -94,39 +106,48 @@ def read_gcode_file(filename):
                 lines.append(line)
     return lines
 
+def is_M_command(cmd):
+    return cmd.startswith("M")
+
 def is_motion_command(cmd):
     return cmd.startswith("G0") or cmd.startswith("G1")
 
 def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package, stop_event):
-    size = min(16 - shared_state['on_flight'], package)
+    size = min(36 - shared_state['on_flight'], package)
     for _ in range(size):
         if stop_event.is_set():
             # print("🛑 Dừng giữa batch gửi.")
             break
-        if shared_state['sent'] < total_cmds and shared_state['on_flight'] < 16:
+        if shared_state['sent'] < total_cmds and shared_state['on_flight'] < 36:
             cmd = gcode_lines[shared_state['sent']]
-            success = send_uart_command(protocol, cmd)
-            if success and is_motion_command(cmd):
-                shared_state['sent'] += 1
-                shared_state['on_flight'] += 1
-            elif success:
+            if is_M_command(cmd):
+                print("Sending:", cmd)
+                protocol.transport.write(f"{cmd}\n".encode(ENCODING))
                 shared_state['sent'] += 1
                 shared_state['received'] += 1
+            else:
+                success = send_uart_command(protocol, cmd)
+                if success and is_motion_command(cmd):
+                    shared_state['sent'] += 1
+                    shared_state['on_flight'] += 1
+                elif success:
+                    shared_state['sent'] += 1
+                    shared_state['received'] += 1
 
-def send_gcode_file(protocol, gcode_lines, gcode_queue, total_cmds, shared_state,
+def send_gcode_file(protocol, gcode_lines, total_cmds, shared_state,
                     queue_lock, receive_done_signal, stop_event):
-    send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16, stop_event=stop_event)
+    send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=36, stop_event=stop_event)
     while shared_state['sent'] < total_cmds and not stop_event.is_set():
         receive_done_signal.wait()
         if stop_event.is_set():
             # print("🛑 Stop yêu cầu - dừng gửi")
             break
         with queue_lock:
-            send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16, stop_event=stop_event)
+            send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=36, stop_event=stop_event)
             # print(f"📤 Sent: {shared_state['sent']}  📡 On-flight: {shared_state['on_flight']}")
             receive_done_signal.clear()
 
-def receive_gcode_response(protocol, gcode_lines, gcode_queue, total_cmds, shared_state,
+def receive_gcode_response(protocol, total_cmds, shared_state,
                            queue_lock, receive_done_signal, stop_event):
     while (shared_state['received'] < total_cmds or shared_state['on_flight'] > 0) and not stop_event.is_set():
         done_count = protocol.get_done_count(timeout=1.0)
@@ -134,7 +155,7 @@ def receive_gcode_response(protocol, gcode_lines, gcode_queue, total_cmds, share
             with queue_lock:
                 shared_state['received'] += done_count
                 shared_state['on_flight'] -= done_count
-                # print(f"✅ Done: {shared_state['received']}  📉 On-flight: {shared_state['on_flight']}")
+                print(f"✅ Done: {shared_state['received']}  📉 On-flight: {shared_state['on_flight']}")
                 receive_done_signal.set()
 
 class App:
@@ -234,18 +255,23 @@ class App:
         gcode_lines = read_gcode_file(self.gcode_file_path)
         total_cmds = len(gcode_lines)
         self.stop_event.clear()
+        self.shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
+        # start_time = time.time()
         threading.Thread(target=send_gcode_file,
-                         args=(self.protocol, gcode_lines, self.command_queue, total_cmds,
+                         args=(self.protocol, gcode_lines, total_cmds,
                                self.shared_state, self.queue_lock, self.receive_done_signal, self.stop_event),
                          daemon=True).start()
         threading.Thread(target=receive_gcode_response,
-                         args=(self.protocol, gcode_lines, self.command_queue, total_cmds,
+                         args=(self.protocol, total_cmds,
                                self.shared_state, self.queue_lock, self.receive_done_signal, self.stop_event),
                          daemon=True).start()
+        # end_time = time.time()
+        # print(f"Execution time: {end_time-start_time}")
 
     def send_manual_command(self):
         if self.protocol:
             cmd = self.manual_entry.get().strip().upper()
+            self.shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
             if cmd in ["CTRL X", "CTRL+X"]:
                 self.protocol.transport.write(b'\x18')
                 # print("📨 Gửi: Ctrl+X (0x18)")
@@ -318,7 +344,11 @@ class App:
 
     def do_homing(self):
         if self.protocol:
-            threading.Thread(target=run_initialization_sequence, args=(self.protocol,), daemon=True).start()
+            # cmds = ["$X", "$HX", "$HY", "$HZ", "$HA", "$HB"]
+            # total_cmds = len(cmds)
+            # self.shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
+            threading.Thread(target=run_initialization_sequence, args=(self.protocol, self.stop_event,), daemon=True).start()
+
 
     def do_reset(self):
         if self.protocol:
