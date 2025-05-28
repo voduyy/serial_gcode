@@ -5,8 +5,8 @@ from PIL import Image, ImageTk
 import cv2
 import threading
 import time
-from serial.tools import list_ports
 import serial
+from serial.tools import list_ports
 from serial import threaded
 import queue
 import datetime
