@@ -17,38 +17,129 @@ IMG_HEIGHT = 480
 MAX_LOG_LINES = 500
 
 error_codes_to_message = {
-    1: "Expected command letter", 2: "Bad number format", 3: "Invalid statement", 4: "Value < 0",
-    5: "Setting disabled", 6: "Step pulse > 255", 7: "EEPROM read fail", 8: "Not idle",
-    9: "System G-code lock", 10: "Homing not enabled", 11: "Line overflow", 12: "Step rate > max",
-    13: "Safety door", 14: "Line length", 15: "Travel exceeded", 16: "Invalid jog command",
-    17: "Laser mode requires PWM", 20: "Unsupported G-code", 21: "Modal group violation",
-    22: "Undefined feed rate", 23: "G-code target error", 24: "Arc radius error",
-    25: "No axis words in command", 26: "G-code word repetition", 27: "Invalid line number",
-    28: "Value word missing", 29: "G59.6 not supported", 30: "Q word disabled",
-    31: "Invalid spindle speed", 32: "Laser mode disabled", 33: "Unsupported motion mode",
+    1: {"short_msg": "Expected command letter", "old_msg": "Expected command letter", "description": "G-code words consist of a letter and a value. Letter was not found."},
+    2: {"short_msg": "Bad number format", "old_msg": "Bad number format", "description": "Missing the expected G-code word value or numeric value format is not valid."},
+    3: {"short_msg": "Invalid statement", "old_msg": "Invalid statement", "description": "Grbl '$' system command was not recognized or supported."},
+    4: {"short_msg": "Value < 0", "old_msg": "Value < 0", "description": "Negative value received for an expected positive value."},
+    5: {"short_msg": "Setting disabled", "old_msg": "Setting disabled", "description": "Homing cycle failure. Homing is not enabled via settings."},
+    6: {"short_msg": "Value < 3 usec", "old_msg": "Value < 3 usec", "description": "Minimum step pulse time must be greater than 3usec."},
+    7: {"short_msg": "EEPROM read fail", "old_msg": "EEPROM read fail. Using defaults", "description": "An EEPROM read failed. Auto-restoring affected EEPROM to default values."},
+    8: {"short_msg": "Not idle", "old_msg": "Not idle", "description": "Grbl '$' command cannot be used unless Grbl is IDLE. Ensures smooth operation during a job."},
+    9: {"short_msg": "G-code lock", "old_msg": "G-code lock", "description": "G-code commands are locked out during alarm or jog state."},
+    10: {"short_msg": "Homing not enabled", "old_msg": "Homing not enabled", "description": "Soft limits cannot be enabled without homing also enabled."},
+    11: {"short_msg": "Line overflow", "old_msg": "Line overflow", "description": "Max characters per line exceeded. Received command line was not executed."},
+    12: {"short_msg": "Step rate > 30kHz", "old_msg": "Step rate > 30kHz", "description": "Grbl '$' setting value cause the step rate to exceed the maximum supported."},
+    13: {"short_msg": "Check Door", "old_msg": "Check Door", "description": "Safety door detected as opened and door state initiated."},
+    14: {"short_msg": "Line length exceeded", "old_msg": "Line length exceeded", "description": "Build info or startup line exceeded EEPROM line length limit. Line not stored."},
+    15: {"short_msg": "Travel exceeded", "old_msg": "Travel exceeded", "description": "Jog target exceeds machine travel. Jog command has been ignored."},
+    16: {"short_msg": "Invalid jog command", "old_msg": "Invalid jog command", "description": "Jog command has no '=' or contains prohibited g-code."},
+    17: {"short_msg": "Setting disabled", "old_msg": "Setting disabled", "description": "Laser mode requires PWM output."},
+    20: {"short_msg": "Unsupported command", "old_msg": "Unsupported command", "description": "Unsupported or invalid g-code command found in block."},
+    21: {"short_msg": "Modal group violation", "old_msg": "Modal group violation", "description": "More than one g-code command from same modal group found in block."},
+    22: {"short_msg": "Undefined feed rate", "old_msg": "Undefined feed rate", "description": "Feed rate has not yet been set or is undefined."},
+    23: {"short_msg": "Invalid gcode ID:23", "old_msg": "Invalid gcode ID:23", "description": "G-code command in block requires an integer value."},
+    24: {"short_msg": "Invalid gcode ID:24", "old_msg": "Invalid gcode ID:24", "description": "More than one g-code command that requires axis words found in block."},
+    25: {"short_msg": "Invalid gcode ID:25", "old_msg": "Invalid gcode ID:25", "description": "Repeated g-code word found in block."},
+    26: {"short_msg": "Invalid gcode ID:26", "old_msg": "Invalid gcode ID:26", "description": "No axis words found in block for g-code command or current modal state which requires them."},
+    27: {"short_msg": "Invalid gcode ID:27", "old_msg": "Invalid gcode ID:27", "description": "Line number value is invalid."},
+    28: {"short_msg": "Invalid gcode ID:28", "old_msg": "Invalid gcode ID:28", "description": "G-code command is missing a required value word."},
+    29: {"short_msg": "Invalid gcode ID:29", "old_msg": "Invalid gcode ID:29", "description": "G59.x work coordinate systems are not supported."},
+    30: {"short_msg": "Invalid gcode ID:30", "old_msg": "Invalid gcode ID:30", "description": "G53 only allowed with G0 and G1 motion modes."},
+    31: {"short_msg": "Invalid gcode ID:31", "old_msg": "Invalid gcode ID:31", "description": "Axis words found in block when no command or current modal state uses them."},
+    32: {"short_msg": "Invalid gcode ID:32", "old_msg": "Invalid gcode ID:32", "description": "G2 and G3 arcs require at least one in-plane axis word."},
+    33: {"short_msg": "Invalid gcode ID:33", "old_msg": "Invalid gcode ID:33", "description": "Motion command target is invalid."},
+    34: {"short_msg": "Invalid gcode ID:34", "old_msg": "Invalid gcode ID:34", "description": "Arc radius value is invalid."},
+    35: {"short_msg": "Invalid gcode ID:35", "old_msg": "Invalid gcode ID:35", "description": "G2 and G3 arcs require at least one in-plane offset word."},
+    36: {"short_msg": "Invalid gcode ID:36", "old_msg": "Invalid gcode ID:36", "description": "Unused value words found in block."},
+    37: {"short_msg": "Invalid gcode ID:37", "old_msg": "Invalid gcode ID:37", "description": "G43.1 dynamic tool length offset is not assigned to configured tool length axis."},
+    38: {"short_msg": "Invalid gcode ID:38", "old_msg": "Invalid gcode ID:38", "description": "Tool number greater than max supported value."}
 }
+
 alarm_codes_to_message = {
-    1: "Hard limit", 2: "Soft limit", 3: "Abort during cycle", 4: "Probe fail", 5: "Probe fail",
-    6: "Homing fail", 7: "Door open", 8: "Limit switch error", 9: "Emergency stop",
+    1: {
+        "short_msg": "Hard limit",
+        "old_msg": "Hard limit",
+        "description": "Hard limit has been triggered. Machine position is likely lost due to sudden halt. Re-homing is highly recommended."
+    },
+    2: {
+        "short_msg": "Soft limit",
+        "old_msg": "Soft limit",
+        "description": "Soft limit alarm. G-code motion target exceeds machine travel. Machine position retained. Alarm may be safely unlocked."
+    },
+    3: {
+        "short_msg": "Abort during cycle",
+        "old_msg": "Abort during cycle",
+        "description": "Reset while in motion. Machine position is likely lost due to sudden halt. Re-homing is highly recommended."
+    },
+    4: {
+        "short_msg": "Probe fail",
+        "old_msg": "Probe fail",
+        "description": "Probe fail. Probe is not in the expected initial state before starting probe cycle when G38.2 and G38.3 is not triggered and G38.4 and G38.5 is triggered."
+    },
+    5: {
+        "short_msg": "Probe fail",
+        "old_msg": "Probe fail",
+        "description": "Probe fail. Probe did not contact the workpiece within the programmed travel for G38.2 and G38.4."
+    },
+    6: {
+        "short_msg": "Homing fail",
+        "old_msg": "Homing fail",
+        "description": "Homing fail. The active homing cycle was reset."
+    },
+    7: {
+        "short_msg": "Homing fail",
+        "old_msg": "Homing fail",
+        "description": "Homing fail. Safety door was opened during homing cycle."
+    },
+    8: {
+        "short_msg": "Homing fail",
+        "old_msg": "Homing fail",
+        "description": "Homing fail. Pull off travel failed to clear limit switch. Try increasing pull-off setting or check wiring."
+    },
+    9: {
+        "short_msg": "Homing fail",
+        "old_msg": "Homing fail",
+        "description": "Homing fail. Could not find limit switch within search distances. Try increasing max travel, decreasing pull-off distance, or check wiring."
+    }
 }
+
 grbl_settings = [
-    ('$0', 'Step pulse time', 'µs', 'Step pulse time microseconds'),
-    ('$1', 'Step idle delay', 'ms', 'Step idle delay in milliseconds'),
-    ('$10', 'Status report mask', '', 'Bitmask for status report'),
-    ('$30', 'Max spindle speed', 'RPM', 'Maximum spindle speed'),
-    ('$100', 'X steps/mm', 'steps/mm', 'Steps per mm for X-axis'),
-    ('$101', 'Y steps/mm', 'steps/mm', 'Steps per mm for Y-axis'),
-    ('$102', 'Z steps/mm', 'steps/mm', 'Steps per mm for Z-axis'),
-    ('$110', 'X max rate', 'mm/min', 'Maximum rate for X-axis'),
-    ('$111', 'Y max rate', 'mm/min', 'Maximum rate for Y-axis'),
-    ('$112', 'Z max rate', 'mm/min', 'Maximum rate for Z-axis'),
-    ('$120', 'X acceleration', 'mm/sec^2', 'Acceleration for X-axis'),
-    ('$121', 'Y acceleration', 'mm/sec^2', 'Acceleration for Y-axis'),
-    ('$122', 'Z acceleration', 'mm/sec^2', 'Acceleration for Z-axis'),
-    ('$130', 'X max travel', 'mm', 'Maximum travel for X-axis'),
-    ('$131', 'Y max travel', 'mm', 'Maximum travel for Y-axis'),
-    ('$132', 'Z max travel', 'mm', 'Maximum travel for Z-axis'),
+    ('$0', 'Step pulse time', 'µs', 'Sets time length per step. Minimum 3µs.'),
+    ('$1', 'Step idle delay', 'ms', 'Hold delay before disabling steppers. 255 keeps motors enabled.'),
+    ('$2', 'Step pulse invert', 'mask', 'Inverts the step signal. Set axis bit to invert (00000ZYX).'),
+    ('$3', 'Step direction invert', 'mask', 'Inverts the direction signal. Set axis bit to invert (00000ZYX).'),
+    ('$4', 'Invert step enable pin', 'bool', 'Inverts the stepper driver enable pin signal.'),
+    ('$5', 'Invert limit pins', 'bool', 'Inverts all limit input pins.'),
+    ('$6', 'Invert probe pin', 'bool', 'Inverts the probe input pin signal.'),
+    ('$10', 'Status report options', 'mask', 'Alters data included in status reports.'),
+    ('$11', 'Junction deviation', 'mm', 'Controls speed through junctions. Lower = slower.'),
+    ('$12', 'Arc tolerance', 'mm', 'Sets G2/G3 arc tracing accuracy.'),
+    ('$13', 'Report in inches', 'bool', 'Enables inch units in reports.'),
+    ('$20', 'Soft limits enable', 'bool', 'Enable soft limits. Requires homing.'),
+    ('$21', 'Hard limits enable', 'bool', 'Enable hard limits. Triggers alarm on switch.'),
+    ('$22', 'Homing cycle enable', 'bool', 'Enable homing cycle. Requires limit switches.'),
+    ('$23', 'Homing direction invert', 'mask', 'Invert homing direction. Bitmask (00000ZYX).'),
+    ('$24', 'Homing locate feed rate', 'mm/min', 'Slow rate to locate switch accurately.'),
+    ('$25', 'Homing search seek rate', 'mm/min', 'Fast rate to find limit switch.'),
+    ('$26', 'Homing debounce delay', 'ms', 'Delay to debounce switch during homing.'),
+    ('$27', 'Homing pull-off distance', 'mm', 'Retract after switch trigger. Must clear switch.'),
+    ('$30', 'Max spindle speed', 'RPM', 'Spindle speed at 100% PWM duty.'),
+    ('$31', 'Min spindle speed', 'RPM', 'Spindle speed at 0.4% PWM duty.'),
+    ('$32', 'Laser-mode enable', 'bool', 'Enable laser mode. Avoids halts on spindle changes.'),
+    ('$100', 'X steps/mm', 'steps/mm', 'Steps per mm for X-axis.'),
+    ('$101', 'Y steps/mm', 'steps/mm', 'Steps per mm for Y-axis.'),
+    ('$102', 'Z steps/mm', 'steps/mm', 'Steps per mm for Z-axis.'),
+    ('$110', 'X max rate', 'mm/min', 'Maximum movement rate for X-axis.'),
+    ('$111', 'Y max rate', 'mm/min', 'Maximum movement rate for Y-axis.'),
+    ('$112', 'Z max rate', 'mm/min', 'Maximum movement rate for Z-axis.'),
+    ('$120', 'X acceleration', 'mm/sec^2', 'Acceleration for X-axis. Avoid step loss.'),
+    ('$121', 'Y acceleration', 'mm/sec^2', 'Acceleration for Y-axis. Avoid step loss.'),
+    ('$122', 'Z acceleration', 'mm/sec^2', 'Acceleration for Z-axis. Avoid step loss.'),
+    ('$130', 'X max travel', 'mm', 'Max travel distance for X from home.'),
+    ('$131', 'Y max travel', 'mm', 'Max travel distance for Y from home.'),
+    ('$132', 'Z max travel', 'mm', 'Max travel distance for Z from home.'),
 ]
+
 
 def show_error_codes_window(root):
     win = tk.Toplevel(root)
