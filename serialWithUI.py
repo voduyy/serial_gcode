@@ -16,92 +16,56 @@ IMG_WIDTH = 640
 IMG_HEIGHT = 480
 MAX_LOG_LINES = 500
 
-error_codes_to_message = {
-    1: {"short_msg": "Expected command letter", "old_msg": "Expected command letter", "description": "G-code words consist of a letter and a value. Letter was not found."},
-    2: {"short_msg": "Bad number format", "old_msg": "Bad number format", "description": "Missing the expected G-code word value or numeric value format is not valid."},
-    3: {"short_msg": "Invalid statement", "old_msg": "Invalid statement", "description": "Grbl '$' system command was not recognized or supported."},
-    4: {"short_msg": "Value < 0", "old_msg": "Value < 0", "description": "Negative value received for an expected positive value."},
-    5: {"short_msg": "Setting disabled", "old_msg": "Setting disabled", "description": "Homing cycle failure. Homing is not enabled via settings."},
-    6: {"short_msg": "Value < 3 usec", "old_msg": "Value < 3 usec", "description": "Minimum step pulse time must be greater than 3usec."},
-    7: {"short_msg": "EEPROM read fail", "old_msg": "EEPROM read fail. Using defaults", "description": "An EEPROM read failed. Auto-restoring affected EEPROM to default values."},
-    8: {"short_msg": "Not idle", "old_msg": "Not idle", "description": "Grbl '$' command cannot be used unless Grbl is IDLE. Ensures smooth operation during a job."},
-    9: {"short_msg": "G-code lock", "old_msg": "G-code lock", "description": "G-code commands are locked out during alarm or jog state."},
-    10: {"short_msg": "Homing not enabled", "old_msg": "Homing not enabled", "description": "Soft limits cannot be enabled without homing also enabled."},
-    11: {"short_msg": "Line overflow", "old_msg": "Line overflow", "description": "Max characters per line exceeded. Received command line was not executed."},
-    12: {"short_msg": "Step rate > 30kHz", "old_msg": "Step rate > 30kHz", "description": "Grbl '$' setting value cause the step rate to exceed the maximum supported."},
-    13: {"short_msg": "Check Door", "old_msg": "Check Door", "description": "Safety door detected as opened and door state initiated."},
-    14: {"short_msg": "Line length exceeded", "old_msg": "Line length exceeded", "description": "Build info or startup line exceeded EEPROM line length limit. Line not stored."},
-    15: {"short_msg": "Travel exceeded", "old_msg": "Travel exceeded", "description": "Jog target exceeds machine travel. Jog command has been ignored."},
-    16: {"short_msg": "Invalid jog command", "old_msg": "Invalid jog command", "description": "Jog command has no '=' or contains prohibited g-code."},
-    17: {"short_msg": "Setting disabled", "old_msg": "Setting disabled", "description": "Laser mode requires PWM output."},
-    20: {"short_msg": "Unsupported command", "old_msg": "Unsupported command", "description": "Unsupported or invalid g-code command found in block."},
-    21: {"short_msg": "Modal group violation", "old_msg": "Modal group violation", "description": "More than one g-code command from same modal group found in block."},
-    22: {"short_msg": "Undefined feed rate", "old_msg": "Undefined feed rate", "description": "Feed rate has not yet been set or is undefined."},
-    23: {"short_msg": "Invalid gcode ID:23", "old_msg": "Invalid gcode ID:23", "description": "G-code command in block requires an integer value."},
-    24: {"short_msg": "Invalid gcode ID:24", "old_msg": "Invalid gcode ID:24", "description": "More than one g-code command that requires axis words found in block."},
-    25: {"short_msg": "Invalid gcode ID:25", "old_msg": "Invalid gcode ID:25", "description": "Repeated g-code word found in block."},
-    26: {"short_msg": "Invalid gcode ID:26", "old_msg": "Invalid gcode ID:26", "description": "No axis words found in block for g-code command or current modal state which requires them."},
-    27: {"short_msg": "Invalid gcode ID:27", "old_msg": "Invalid gcode ID:27", "description": "Line number value is invalid."},
-    28: {"short_msg": "Invalid gcode ID:28", "old_msg": "Invalid gcode ID:28", "description": "G-code command is missing a required value word."},
-    29: {"short_msg": "Invalid gcode ID:29", "old_msg": "Invalid gcode ID:29", "description": "G59.x work coordinate systems are not supported."},
-    30: {"short_msg": "Invalid gcode ID:30", "old_msg": "Invalid gcode ID:30", "description": "G53 only allowed with G0 and G1 motion modes."},
-    31: {"short_msg": "Invalid gcode ID:31", "old_msg": "Invalid gcode ID:31", "description": "Axis words found in block when no command or current modal state uses them."},
-    32: {"short_msg": "Invalid gcode ID:32", "old_msg": "Invalid gcode ID:32", "description": "G2 and G3 arcs require at least one in-plane axis word."},
-    33: {"short_msg": "Invalid gcode ID:33", "old_msg": "Invalid gcode ID:33", "description": "Motion command target is invalid."},
-    34: {"short_msg": "Invalid gcode ID:34", "old_msg": "Invalid gcode ID:34", "description": "Arc radius value is invalid."},
-    35: {"short_msg": "Invalid gcode ID:35", "old_msg": "Invalid gcode ID:35", "description": "G2 and G3 arcs require at least one in-plane offset word."},
-    36: {"short_msg": "Invalid gcode ID:36", "old_msg": "Invalid gcode ID:36", "description": "Unused value words found in block."},
-    37: {"short_msg": "Invalid gcode ID:37", "old_msg": "Invalid gcode ID:37", "description": "G43.1 dynamic tool length offset is not assigned to configured tool length axis."},
-    38: {"short_msg": "Invalid gcode ID:38", "old_msg": "Invalid gcode ID:38", "description": "Tool number greater than max supported value."}
-}
+error_codes_to_message = [
+    (1, "Expected command letter", "Expected command letter", "G-code words consist of a letter and a value. Letter was not found."),
+    (2, "Bad number format", "Bad number format", "Missing the expected G-code word value or numeric value format is not valid."),
+    (3, "Invalid statement", "Invalid statement", "Grbl '$' system command was not recognized or supported."),
+    (4, "Value < 0", "Value < 0", "Negative value received for an expected positive value."),
+    (5, "Setting disabled", "Setting disabled", "Homing cycle failure. Homing is not enabled via settings."),
+    (6, "Value < 3 usec", "Value < 3 usec", "Minimum step pulse time must be greater than 3usec."),
+    (7, "EEPROM read fail", "EEPROM read fail. Using defaults", "An EEPROM read failed. Auto-restoring affected EEPROM to default values."),
+    (8, "Not idle", "Not idle", "Grbl '$' command cannot be used unless Grbl is IDLE. Ensures smooth operation during a job."),
+    (9, "G-code lock", "G-code lock", "G-code commands are locked out during alarm or jog state."),
+    (10, "Homing not enabled", "Homing not enabled", "Soft limits cannot be enabled without homing also enabled."),
+    (11, "Line overflow", "Line overflow", "Max characters per line exceeded. Received command line was not executed."),
+    (12, "Step rate > 30kHz", "Step rate > 30kHz", "Grbl '$' setting value cause the step rate to exceed the maximum supported."),
+    (13, "Check Door", "Check Door", "Safety door detected as opened and door state initiated."),
+    (14, "Line length exceeded", "Line length exceeded", "Build info or startup line exceeded EEPROM line length limit. Line not stored."),
+    (15, "Travel exceeded", "Travel exceeded", "Jog target exceeds machine travel. Jog command has been ignored."),
+    (16, "Invalid jog command", "Invalid jog command", "Jog command has no '=' or contains prohibited g-code."),
+    (17, "Laser mode requires PWM", "Setting disabled", "Laser mode requires PWM output."),
+    (20, "Unsupported command", "Unsupported command", "Unsupported or invalid g-code command found in block."),
+    (21, "Modal group violation", "Modal group violation", "More than one g-code command from same modal group found in block."),
+    (22, "Undefined feed rate", "Undefined feed rate", "Feed rate has not yet been set or is undefined."),
+    (23, "Invalid gcode ID:23", "Invalid gcode ID:23", "G-code command in block requires an integer value."),
+    (24, "Invalid gcode ID:24", "Invalid gcode ID:24", "More than one g-code command that requires axis words found in block."),
+    (25, "Invalid gcode ID:25", "Invalid gcode ID:25", "Repeated g-code word found in block."),
+    (26, "Invalid gcode ID:26", "Invalid gcode ID:26", "No axis words found in block for g-code command or current modal state which requires them."),
+    (27, "Invalid gcode ID:27", "Invalid gcode ID:27", "Line number value is invalid."),
+    (28, "Invalid gcode ID:28", "Invalid gcode ID:28", "G-code command is missing a required value word."),
+    (29, "Invalid gcode ID:29", "Invalid gcode ID:29", "G59.x work coordinate systems are not supported."),
+    (30, "Invalid gcode ID:30", "Invalid gcode ID:30", "G53 only allowed with G0 and G1 motion modes."),
+    (31, "Invalid gcode ID:31", "Invalid gcode ID:31", "Axis words found in block when no command or current modal state uses them."),
+    (32, "Invalid gcode ID:32", "Invalid gcode ID:32", "G2 and G3 arcs require at least one in-plane axis word."),
+    (33, "Invalid gcode ID:33", "Invalid gcode ID:33", "Motion command target is invalid."),
+    (34, "Invalid gcode ID:34", "Invalid gcode ID:34", "Arc radius value is invalid."),
+    (35, "Invalid gcode ID:35", "Invalid gcode ID:35", "G2 and G3 arcs require at least one in-plane offset word."),
+    (36, "Invalid gcode ID:36", "Invalid gcode ID:36", "Unused value words found in block."),
+    (37, "Invalid gcode ID:37", "Invalid gcode ID:37", "G43.1 dynamic tool length offset is not assigned to configured tool length axis."),
+    (38, "Invalid gcode ID:38", "Invalid gcode ID:38", "Tool number greater than max supported value.")
+]
 
-alarm_codes_to_message = {
-    1: {
-        "short_msg": "Hard limit",
-        "old_msg": "Hard limit",
-        "description": "Hard limit has been triggered. Machine position is likely lost due to sudden halt. Re-homing is highly recommended."
-    },
-    2: {
-        "short_msg": "Soft limit",
-        "old_msg": "Soft limit",
-        "description": "Soft limit alarm. G-code motion target exceeds machine travel. Machine position retained. Alarm may be safely unlocked."
-    },
-    3: {
-        "short_msg": "Abort during cycle",
-        "old_msg": "Abort during cycle",
-        "description": "Reset while in motion. Machine position is likely lost due to sudden halt. Re-homing is highly recommended."
-    },
-    4: {
-        "short_msg": "Probe fail",
-        "old_msg": "Probe fail",
-        "description": "Probe fail. Probe is not in the expected initial state before starting probe cycle when G38.2 and G38.3 is not triggered and G38.4 and G38.5 is triggered."
-    },
-    5: {
-        "short_msg": "Probe fail",
-        "old_msg": "Probe fail",
-        "description": "Probe fail. Probe did not contact the workpiece within the programmed travel for G38.2 and G38.4."
-    },
-    6: {
-        "short_msg": "Homing fail",
-        "old_msg": "Homing fail",
-        "description": "Homing fail. The active homing cycle was reset."
-    },
-    7: {
-        "short_msg": "Homing fail",
-        "old_msg": "Homing fail",
-        "description": "Homing fail. Safety door was opened during homing cycle."
-    },
-    8: {
-        "short_msg": "Homing fail",
-        "old_msg": "Homing fail",
-        "description": "Homing fail. Pull off travel failed to clear limit switch. Try increasing pull-off setting or check wiring."
-    },
-    9: {
-        "short_msg": "Homing fail",
-        "old_msg": "Homing fail",
-        "description": "Homing fail. Could not find limit switch within search distances. Try increasing max travel, decreasing pull-off distance, or check wiring."
-    }
-}
+alarm_codes_to_message = [
+    (1, "Hard limit", "Hard limit", "Hard limit has been triggered. Machine position is likely lost due to sudden halt. Re-homing is highly recommended."),
+    (2, "Soft limit", "Soft limit", "Soft limit alarm. G-code motion target exceeds machine travel. Machine position retained. Alarm may be safely unlocked."),
+    (3, "Abort during cycle", "Abort during cycle", "Reset while in motion. Machine position is likely lost due to sudden halt. Re-homing is highly recommended."),
+    (4, "Probe fail", "Probe fail", "Probe is not in the expected initial state before starting probe cycle."),
+    (5, "Probe fail", "Probe fail", "Probe did not contact the workpiece within the programmed travel."),
+    (6, "Homing fail", "Homing fail", "The active homing cycle was reset."),
+    (7, "Homing fail", "Homing fail", "Safety door was opened during homing cycle."),
+    (8, "Homing fail", "Homing fail", "Pull off travel failed to clear limit switch. Try increasing pull-off."),
+    (9, "Homing fail", "Homing fail", "Could not find limit switch. Try increasing max travel or check wiring.")
+]
 
 grbl_settings = [
     ('$0', 'Step pulse time', 'µs', 'Sets time length per step. Minimum 3µs.'),
@@ -144,16 +108,33 @@ grbl_settings = [
 def show_error_codes_window(root):
     win = tk.Toplevel(root)
     win.title("📘 GRBL Error & Alarm Codes")
-    win.geometry("600x400")
-    text = tk.Text(win, wrap="word", font=("Consolas", 10))
-    text.pack(fill="both", expand=True)
-    text.insert(tk.END, "📕 ERROR Codes:\n")
-    for code, msg in sorted(error_codes_to_message.items()):
-        text.insert(tk.END, f"  error:{code:<2} → {msg}\n")
-    text.insert(tk.END, "\n🚨 ALARM Codes:\n")
-    for code, msg in sorted(alarm_codes_to_message.items()):
-        text.insert(tk.END, f"  ALARM:{code:<2} → {msg}\n")
-    text.configure(state="disabled")
+    win.geometry("900x500")
+
+    tree = ttk.Treeview(win, columns=("type", "code", "short_msg", "old_msg", "description"), show="headings")
+    tree.pack(fill="both", expand=True)
+
+    # Đặt tên cột
+    tree.heading("type", text="Type")
+    tree.heading("code", text="Code")
+    tree.heading("short_msg", text="Short Message")
+    tree.heading("old_msg", text="Old Message")
+    tree.heading("description", text="Description")
+
+    # Cài đặt chiều rộng các cột
+    tree.column("type", width=80, anchor="center")
+    tree.column("code", width=50, anchor="center")
+    tree.column("short_msg", width=180)
+    tree.column("old_msg", width=180)
+    tree.column("description", width=400)
+
+    # Thêm dữ liệu ERROR
+    for code, short_msg, old_msg, desc in error_codes_to_message:
+        tree.insert("", "end", values=("ERROR", code, short_msg, old_msg, desc))
+
+    # Thêm dữ liệu ALARM
+    for code, short_msg, old_msg, desc in alarm_codes_to_message:
+        tree.insert("", "end", values=("ALARM", code, short_msg, old_msg, desc))
+
 
 def show_setting_codes_window(root):
     win = tk.Toplevel(root)
