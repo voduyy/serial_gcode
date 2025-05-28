@@ -16,6 +16,71 @@ IMG_WIDTH = 640
 IMG_HEIGHT = 480
 MAX_LOG_LINES = 500
 
+error_codes_to_message = {
+    1: "Expected command letter", 2: "Bad number format", 3: "Invalid statement", 4: "Value < 0",
+    5: "Setting disabled", 6: "Step pulse > 255", 7: "EEPROM read fail", 8: "Not idle",
+    9: "System G-code lock", 10: "Homing not enabled", 11: "Line overflow", 12: "Step rate > max",
+    13: "Safety door", 14: "Line length", 15: "Travel exceeded", 16: "Invalid jog command",
+    17: "Laser mode requires PWM", 20: "Unsupported G-code", 21: "Modal group violation",
+    22: "Undefined feed rate", 23: "G-code target error", 24: "Arc radius error",
+    25: "No axis words in command", 26: "G-code word repetition", 27: "Invalid line number",
+    28: "Value word missing", 29: "G59.6 not supported", 30: "Q word disabled",
+    31: "Invalid spindle speed", 32: "Laser mode disabled", 33: "Unsupported motion mode",
+}
+alarm_codes_to_message = {
+    1: "Hard limit", 2: "Soft limit", 3: "Abort during cycle", 4: "Probe fail", 5: "Probe fail",
+    6: "Homing fail", 7: "Door open", 8: "Limit switch error", 9: "Emergency stop",
+}
+grbl_settings = [
+    ('$0', 'Step pulse time', 'µs', 'Step pulse time microseconds'),
+    ('$1', 'Step idle delay', 'ms', 'Step idle delay in milliseconds'),
+    ('$10', 'Status report mask', '', 'Bitmask for status report'),
+    ('$30', 'Max spindle speed', 'RPM', 'Maximum spindle speed'),
+    ('$100', 'X steps/mm', 'steps/mm', 'Steps per mm for X-axis'),
+    ('$101', 'Y steps/mm', 'steps/mm', 'Steps per mm for Y-axis'),
+    ('$102', 'Z steps/mm', 'steps/mm', 'Steps per mm for Z-axis'),
+    ('$110', 'X max rate', 'mm/min', 'Maximum rate for X-axis'),
+    ('$111', 'Y max rate', 'mm/min', 'Maximum rate for Y-axis'),
+    ('$112', 'Z max rate', 'mm/min', 'Maximum rate for Z-axis'),
+    ('$120', 'X acceleration', 'mm/sec^2', 'Acceleration for X-axis'),
+    ('$121', 'Y acceleration', 'mm/sec^2', 'Acceleration for Y-axis'),
+    ('$122', 'Z acceleration', 'mm/sec^2', 'Acceleration for Z-axis'),
+    ('$130', 'X max travel', 'mm', 'Maximum travel for X-axis'),
+    ('$131', 'Y max travel', 'mm', 'Maximum travel for Y-axis'),
+    ('$132', 'Z max travel', 'mm', 'Maximum travel for Z-axis'),
+]
+
+def show_error_codes_window(root):
+    win = tk.Toplevel(root)
+    win.title("📘 GRBL Error & Alarm Codes")
+    win.geometry("600x400")
+    text = tk.Text(win, wrap="word", font=("Consolas", 10))
+    text.pack(fill="both", expand=True)
+    text.insert(tk.END, "📕 ERROR Codes:\n")
+    for code, msg in sorted(error_codes_to_message.items()):
+        text.insert(tk.END, f"  error:{code:<2} → {msg}\n")
+    text.insert(tk.END, "\n🚨 ALARM Codes:\n")
+    for code, msg in sorted(alarm_codes_to_message.items()):
+        text.insert(tk.END, f"  ALARM:{code:<2} → {msg}\n")
+    text.configure(state="disabled")
+
+def show_setting_codes_window(root):
+    win = tk.Toplevel(root)
+    win.title("⚙️ GRBL Setting Codes")
+    win.geometry("800x500")
+    tree = ttk.Treeview(win, columns=("code", "name", "unit", "desc"), show="headings")
+    tree.pack(fill="both", expand=True)
+    tree.heading("code", text="$-Code")
+    tree.heading("name", text="Setting")
+    tree.heading("unit", text="Unit")
+    tree.heading("desc", text="Description")
+    tree.column("code", width=60)
+    tree.column("name", width=200)
+    tree.column("unit", width=80)
+    tree.column("desc", width=440)
+    for row in grbl_settings:
+        tree.insert("", "end", values=row)
+
 def log_uart(msg):
     timestamp = datetime.datetime.now().strftime("%H:%M:%S")
     full_msg = f"[{timestamp}] {msg}"
@@ -209,7 +274,12 @@ class App:
         ttk.Button(button_frame, text="🔁 Continue", width=12, command=self.do_continue_gcode).pack(side="left", padx=5)
         ttk.Button(button_frame, text="🏠 Homing", width=12, command=lambda: threading.Thread(target=self.do_homing, daemon=True).start()).pack(side="left", padx=5)
         ttk.Button(button_frame, text="🔄 Reset", width=12, command=lambda: threading.Thread(target=self.do_reset, daemon=True).start()).pack(side="left", padx=5)
-
+        info_frame = ttk.Frame(self.root)
+        info_frame.pack(pady=5)
+        ttk.Button(button_frame, text="📘 Error Codes", width=14,
+                   command=lambda: show_error_codes_window(self.root)).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="⚙️ Setting Codes", width=14,
+                   command=lambda: show_setting_codes_window(self.root)).pack(side="left", padx=5)
         manual_frame = ttk.Frame(self.root)
         manual_frame.pack(pady=5)
         self.manual_entry = ttk.Entry(manual_frame, width=40)
@@ -223,6 +293,7 @@ class App:
         self.uart_log_box.pack(fill="both", expand=True)
         self.uart_log_box.configure(state='disabled')
         App.uart_log_box = self.uart_log_box
+
 
     def choose_gcode_file(self):
         filepath = filedialog.askopenfilename(filetypes=[("G-code files", "*.txt *.gcode"), ("All files", "*.*")])
