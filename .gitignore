@@ -1,2 +1,21 @@
-.idea/*
-.vscode
+# IDE config folders
+.idea/
+.vscode/
+
+# Python virtual environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Compiled files
+*.so
+*.dll
+*.exe
+
+# Logs and temp files
+*.log
+*.tmp
