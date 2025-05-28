@@ -9,11 +9,21 @@ from serial.tools import list_ports
 import serial
 from serial import threaded
 import queue
-import os
+import datetime
 
 ENCODING = 'utf-8'
 IMG_WIDTH = 640
 IMG_HEIGHT = 480
+
+def log_uart(msg):
+    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+    full_msg = f"[{timestamp}] {msg}"
+    print(full_msg)  # vẫn in ra terminal
+    if hasattr(App, 'uart_log_box') and App.uart_log_box:
+        App.uart_log_box.configure(state='normal')
+        App.uart_log_box.insert(tk.END, full_msg + "\n")
+        App.uart_log_box.see(tk.END)
+        App.uart_log_box.configure(state='disabled')
 
 class SerialCommunication(serial.threaded.LineReader):
     TERMINATOR = b'\r\n'
@@ -24,7 +34,7 @@ class SerialCommunication(serial.threaded.LineReader):
         self.ok_lock = threading.Lock()
 
     def handle_line(self, line):
-        print("Received:", line.strip())
+        log_uart(f"⬅️ RX: {line.strip()}")
         if line.strip() == "ok":
             with self.ok_lock:
                 self.ok_received = True
@@ -39,10 +49,10 @@ class SerialCommunication(serial.threaded.LineReader):
             with self.ok_lock:
                 if self.ok_received:
                     return True
-            time.sleep(0.0001)
+            time.sleep(0.0000001)
         return False
 
-    def get_done_count(self, max_count=16, timeout=1.0):
+    def get_done_count(self, max_count=36, timeout=1.0):
         count = 0
         end_time = time.time() + timeout
         while count < max_count:
@@ -59,15 +69,16 @@ class SerialCommunication(serial.threaded.LineReader):
 def find_uart_port():
     ports = list_ports.comports()
     for port, desc, hwid in ports:
-        if "ttyACM0" in port or "USB" in port or "ACM" in port or "COM" in port:
+        if "ttyACM" in port or "USB" in port or "ACM" in port or "COM" in port:
             return port
     return None
 
 def send_uart_command(protocol, cmd, wait_ok=True, retries=3):
     for attempt in range(retries):
         protocol.ok_received = False
-        protocol.transport.write(f"{cmd}\n".encode(ENCODING))
-        print("Sending:", cmd)
+        msg = f"{cmd}\n"
+        protocol.transport.write(msg.encode(ENCODING))
+        log_uart(f"➡️ TX: {cmd}")
         if not wait_ok or protocol.wait_for_receive_ok():
             return True
     return False
@@ -106,7 +117,7 @@ def read_gcode_file(filename):
                 lines.append(line)
     return lines
 
-def is_M_command(cmd):
+def is_m_command(cmd):
     return cmd.startswith("M")
 
 def is_motion_command(cmd):
@@ -120,7 +131,7 @@ def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package,
             break
         if shared_state['sent'] < total_cmds and shared_state['on_flight'] < 36:
             cmd = gcode_lines[shared_state['sent']]
-            if is_M_command(cmd):
+            if is_m_command(cmd):
                 print("Sending:", cmd)
                 protocol.transport.write(f"{cmd}\n".encode(ENCODING))
                 shared_state['sent'] += 1
@@ -167,7 +178,7 @@ class App:
         self.running = True
         self.last_frame = None
         self.show_mirror = True
-        self.command_queue = queue.Queue(maxsize=16)
+        self.command_queue = queue.Queue(maxsize=36)
         self.queue_lock = threading.Lock()
         self.receive_done_signal = threading.Event()
         self.stop_event = threading.Event()
@@ -221,7 +232,17 @@ class App:
         manual_frame.pack(pady=5)
         self.manual_entry = ttk.Entry(manual_frame, width=40)
         self.manual_entry.pack(side="left", padx=5)
+        self.manual_entry.bind("<Return>", lambda event: self.send_manual_command())
         ttk.Button(manual_frame, text="📨 Gửi lệnh", command=self.send_manual_command).pack(side="left", padx=5)
+
+        # --- UART Log Box ---
+        log_frame = ttk.LabelFrame(self.root, text="📜 UART Log Terminal")
+        log_frame.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self.uart_log_box = tk.Text(log_frame, height=15, wrap="word", bg="white", fg="navy", insertbackground="white")
+        self.uart_log_box.pack(fill="both", expand=True)
+        self.uart_log_box.configure(state='disabled')  # không cho sửa nội dung
+        App.uart_log_box = self.uart_log_box  # Để truy cập từ log_uart
 
     def choose_gcode_file(self):
         filepath = filedialog.askopenfilename(filetypes=[("G-code files", "*.txt *.gcode"), ("All files", "*.*")])
@@ -274,7 +295,7 @@ class App:
             self.shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
             if cmd in ["CTRL X", "CTRL+X"]:
                 self.protocol.transport.write(b'\x18')
-                # print("📨 Gửi: Ctrl+X (0x18)")
+                log_uart("➡️ TX: Ctrl+X (0x18)")
             else:
                 send_uart_command(self.protocol, cmd)
             self.manual_entry.delete(0, tk.END)
@@ -302,6 +323,7 @@ class App:
         if self.cap and self.cap.isOpened():
             ret, frame = self.cap.read()
             if ret:
+                frame = cv2.flip(frame, 1)
                 self.last_frame = frame
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 img = Image.fromarray(rgb).resize((IMG_WIDTH, IMG_HEIGHT))
@@ -353,6 +375,7 @@ class App:
     def do_reset(self):
         if self.protocol:
             threading.Thread(target=reset_system, args=(self.protocol,), daemon=True).start()
+        self.shared_state['on_flight'] = 0
 
     def on_close(self):
         self.running = False
