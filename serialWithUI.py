@@ -5,8 +5,8 @@ from PIL import Image, ImageTk
 import cv2
 import threading
 import time
-from serial.tools import list_ports
 import serial
+from serial.tools import list_ports
 from serial import threaded
 import queue
 import datetime
@@ -107,7 +107,7 @@ grbl_settings = [
 
 def show_error_codes_window(root):
     win = tk.Toplevel(root)
-    win.title("📘 GRBL Error & Alarm Codes")
+    win.title("📘 GRBL Error Codes")
     win.geometry("900x500")
 
     tree = ttk.Treeview(win, columns=("type", "code", "short_msg", "old_msg", "description"), show="headings")
@@ -131,10 +131,30 @@ def show_error_codes_window(root):
     for code, short_msg, old_msg, desc in error_codes_to_message:
         tree.insert("", "end", values=("ERROR", code, short_msg, old_msg, desc))
 
-    # Thêm dữ liệu ALARM
+
+def show_alarm_codes_window(root):
+    win = tk.Toplevel(root)
+    win.title("📘 GRBL Alarm Codes")
+    win.geometry("900x500")
+
+    tree = ttk.Treeview(win, columns=("type", "code", "short_msg", "old_msg", "description"), show="headings")
+    tree.pack(fill="both", expand=True)
+
+    # Đặt tên cột
+    tree.heading("type", text="Type")
+    tree.heading("code", text="Code")
+    tree.heading("short_msg", text="Short Message")
+    tree.heading("old_msg", text="Old Message")
+    tree.heading("description", text="Description")
+
+    # Cài đặt chiều rộng các cột
+    tree.column("type", width=80, anchor="center")
+    tree.column("code", width=50, anchor="center")
+    tree.column("short_msg", width=180)
+    tree.column("old_msg", width=180)
+    tree.column("description", width=400)
     for code, short_msg, old_msg, desc in alarm_codes_to_message:
         tree.insert("", "end", values=("ALARM", code, short_msg, old_msg, desc))
-
 
 def show_setting_codes_window(root):
     win = tk.Toplevel(root)
@@ -162,8 +182,8 @@ def log_uart(msg):
         App.uart_log_box.insert(tk.END, full_msg + "\n")
         App.uart_log_box.see(tk.END)
 
-        if int(App.uart_log_box.index('end-1c').split('.')[0]) > MAX_LOG_LINES:
-            App.uart_log_box.delete('1.0', '2.0')
+        # if int(App.uart_log_box.index('end-1c').split('.')[0]) > MAX_LOG_LINES:
+        #     App.uart_log_box.delete('1.0', '2.0')
 
         App.uart_log_box.configure(state='disabled')
 
@@ -327,10 +347,12 @@ class App:
         source_frame.pack(pady=5)
         self.source_var = tk.StringVar(value="camera")
         ttk.Label(source_frame, text="Source:").pack(side="left")
-        ttk.Radiobutton(source_frame, text="Camera", variable=self.source_var, value="camera", command=self.switch_source).pack(side="left")
-        ttk.Radiobutton(source_frame, text="Image", variable=self.source_var, value="image", command=self.switch_source).pack(side="left")
-        ttk.Button(source_frame, text="📂 Choose Image", command=self.choose_image).pack(side="left", padx=5)
+        ttk.Radiobutton(source_frame, text="Camera Laptop", variable=self.source_var, value="in_camera", command=self.switch_source).pack(side="left")
+        ttk.Radiobutton(source_frame, text="Camera ngoài", variable=self.source_var, value="ex_camera", command=self.switch_source).pack(side="left")
+        ttk.Button(source_frame, text="📂 Chọn ảnh", command=self.choose_image).pack(side="left", padx=5)
         ttk.Button(source_frame, text="📸 Chụp hình", command=self.capture_frame).pack(side="left", padx=5)
+        ttk.Button(source_frame, text="Xử lý ảnh", command=self.image_processing).pack(side="left", padx=5)
+        ttk.Button(source_frame, text="Sinh gcode", command=self.generate_gcode).pack(side="left", padx=5)
 
         button_frame = ttk.Frame(self.root)
         button_frame.pack(pady=10)
@@ -341,17 +363,23 @@ class App:
         self.gcode_entry.pack(side="left")
         ttk.Button(gcode_frame, text="📂", width=3, command=self.choose_gcode_file).pack(side="left", padx=2)
 
-        ttk.Button(button_frame, text="📤 Send", width=12, command=self.do_send_gcode).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="🛑 Stop", width=12, command=self.do_stop).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="🔁 Continue", width=12, command=self.do_continue_gcode).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="📤 Gửi gcode", width=12, command=self.do_send_gcode).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="🛑 Dừng", width=12, command=self.do_stop).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="🔁 Tiếp tục", width=12, command=self.do_continue_gcode).pack(side="left", padx=5)
         ttk.Button(button_frame, text="🏠 Homing", width=12, command=lambda: threading.Thread(target=self.do_homing, daemon=True).start()).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="🔄 Reset", width=12, command=lambda: threading.Thread(target=self.do_reset, daemon=True).start()).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="🔄 Reset", width=8, command=lambda: threading.Thread(target=self.do_reset, daemon=True).start()).pack(side="left", padx=5)
         info_frame = ttk.Frame(self.root)
         info_frame.pack(pady=5)
-        ttk.Button(button_frame, text="📘 Error Codes", width=14,
+        code_button_frame = ttk.Frame(self.root)
+        code_button_frame.pack(anchor="c", padx=10, pady=5)
+
+        ttk.Button(code_button_frame, text="📘 Error Codes", width=14,
                    command=lambda: show_error_codes_window(self.root)).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="⚙️ Setting Codes", width=14,
+        ttk.Button(code_button_frame, text="⚙️ Setting Codes", width=16,
                    command=lambda: show_setting_codes_window(self.root)).pack(side="left", padx=5)
+        ttk.Button(code_button_frame, text="🚨 Alarm Codes", width=14,
+                   command=lambda: show_alarm_codes_window(self.root)).pack(side="left", padx=5)
+
         manual_frame = ttk.Frame(self.root)
         manual_frame.pack(pady=5)
         self.manual_entry = ttk.Entry(manual_frame, width=40)
@@ -366,6 +394,11 @@ class App:
         self.uart_log_box.configure(state='disabled')
         App.uart_log_box = self.uart_log_box
 
+    def image_processing(self):
+        return
+
+    def generate_gcode(self):
+        return
 
     def choose_gcode_file(self):
         filepath = filedialog.askopenfilename(filetypes=[("G-code files", "*.txt *.gcode"), ("All files", "*.*")])
@@ -412,7 +445,7 @@ class App:
             self.shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
             if cmd in ["CTRL X", "CTRL+X"]:
                 self.protocol.transport.write(b'\x18')
-                log_uart("➡️ TX: Ctrl+X (0x18)")
+                log_uart("➡️TX: Ctrl+X (0x18)")
             else:
                 send_uart_command(self.protocol, cmd)
 
@@ -448,7 +481,7 @@ class App:
             time.sleep(0.03)
 
     def switch_source(self):
-        if self.source_var.get() == "camera":
+        if self.source_var.get() == "in_camera":
             if self.cap is None:
                 self.start_camera()
             self.show_mirror = True
