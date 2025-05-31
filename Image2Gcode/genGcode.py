@@ -16,10 +16,7 @@ import matplotlib.pyplot as plt
 from sklearn.cluster import DBSCAN
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import serialWithUI
-import shared
-
-from scipy.spatial.distance import cdist
+import global_var
 
 # Adaptive Resampling (góc + khoảng cách)
 def simplify_and_adaptive_resample(points, simplify_epsilon=1.0, angle_thresh=10, min_spacing=4):
@@ -221,7 +218,7 @@ def main():
 
     input_face_dir = "input_image"
     mode_manual = '1'
-    if not shared.is_capture and not shared.is_choose_image:
+    if not global_var.is_capture and not global_var.is_choose_image:
         if mode_manual == '1': #handle capture
             path = os.path.join(input_face_dir,"capture")
             filenames = sorted(
@@ -245,7 +242,7 @@ def main():
             exit()
     else:  # handle which being capture or select
         path = os.path.join(input_face_dir, "capture")
-        filenames = shared.image_name
+        filenames = global_var.image_name
 
     output_image_folder = 'Image2Gcode\output_image'
     output_gcode_folder = 'Image2Gcode\output_gcode'
@@ -371,7 +368,7 @@ def main():
 
     wb.save(os.path.join(excel_folder, 'time_processing.xlsx'))
     print("\n🎉 Xử lý hoàn tất toàn bộ ảnh!")
-    shared.is_finish_covert_image = True
+    global_var.is_finish_covert_image = True
 
 if __name__ == '__main__':
     main()
