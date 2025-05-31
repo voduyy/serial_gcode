@@ -7,9 +7,13 @@ import threading
 import time
 import serial
 from serial.tools import list_ports
+
+import global_var
+from Image2Gcode import genGcode
 from serial import threaded
 import queue
 import datetime
+import os
 
 ENCODING = 'utf-8'
 IMG_WIDTH = 640
@@ -345,7 +349,7 @@ class App:
 
         source_frame = ttk.Frame(self.root)
         source_frame.pack(pady=5)
-        self.source_var = tk.StringVar(value="camera")
+        self.source_var = tk.StringVar(value="in_camera")
         ttk.Label(source_frame, text="Source:").pack(side="left")
         ttk.Radiobutton(source_frame, text="Camera Laptop", variable=self.source_var, value="in_camera", command=self.switch_source).pack(side="left")
         ttk.Radiobutton(source_frame, text="Camera ngoài", variable=self.source_var, value="ex_camera", command=self.switch_source).pack(side="left")
@@ -395,13 +399,17 @@ class App:
         App.uart_log_box = self.uart_log_box
 
     def image_processing(self):
-        return
+        genGcode.main()
 
     def generate_gcode(self):
         return
 
     def choose_gcode_file(self):
-        filepath = filedialog.askopenfilename(filetypes=[("G-code files", "*.txt *.gcode"), ("All files", "*.*")])
+        filepath = filedialog.askopenfilename(
+            initialdir="Image2Gcode/output_gcode",
+            title="Chọn File gcode",
+            filetypes=[("Gcode files", "*.gcode *.nc *.txt")]
+        )
         if filepath:
             self.gcode_file_path = filepath
             self.gcode_path_var.set(filepath)
@@ -476,7 +484,12 @@ class App:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 img = Image.fromarray(rgb).resize((IMG_WIDTH, IMG_HEIGHT))
                 self.root.after(0, lambda: self.display_image(self.left_img_label, img))
-                if self.show_mirror:
+                if global_var.is_finish_covert_image:
+                    self.show_mirror = False
+                    img = (Image.open(f"Image2Gcode/output_image/{global_var.index_capture_image}_binary.jpg")
+                           .resize((450, 450)))
+                    self.root.after(0, lambda: self.display_image(self.right_img_label, img))
+                elif self.show_mirror:
                     self.root.after(0, lambda: self.display_image(self.right_img_label, img))
             time.sleep(0.03)
 
@@ -492,16 +505,33 @@ class App:
             self.show_mirror = False
 
     def choose_image(self):
-        filepath = filedialog.askopenfilename()
+        global filename
+        filepath = filedialog.askopenfilename(
+            initialdir="Image2Gcode/input_image/capture",
+            title="Chọn ảnh",
+            filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp")]
+        )
         if not filepath:
             return
+        if filepath:
+            filename = os.path.basename(filepath)
+        messagebox.showinfo("Thành công", f"Chọn thành công ảnh {filename}.")
+        global_var.image_name = ""
+        global_var.image_name = filename
         img = Image.open(filepath).resize((IMG_WIDTH, IMG_HEIGHT))
         self.display_image(self.right_img_label, img)
+        global_var.is_choose_image = True
         self.show_mirror = False
 
     def capture_frame(self):
         if self.last_frame is not None:
+            global_var.is_finish_covert_image = False
+            global_var.index_capture_image += 1
+            global_var.is_capture = True
+            global_var.image_name = ""
+            global_var.image_name = f"{global_var.index_capture_image}.jpg"
             img = Image.fromarray(cv2.cvtColor(self.last_frame, cv2.COLOR_BGR2RGB)).resize((IMG_WIDTH, IMG_HEIGHT))
+            img.save(f"Image2Gcode/input_image/capture/{global_var.index_capture_image}.jpg")
             self.display_image(self.right_img_label, img)
             self.show_mirror = False
 
@@ -526,9 +556,12 @@ class App:
         self.root.destroy()
 
 if __name__ == "__main__":
+    global_var.image_name = ""
+    global_var.index_capture_image = 0
+    global_var.is_capture = False
+    global_var.is_finish_covert_image = False
+    global_var.is_choose_image = False
     root = tk.Tk()
     app = App(root)
     root.protocol("WM_DELETE_WINDOW", app.on_close)
     root.mainloop()
-
-#hihi
