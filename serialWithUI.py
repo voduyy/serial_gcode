@@ -98,12 +98,12 @@ def is_motion_command(cmd):
     return cmd.startswith("G0") or cmd.startswith("G1")
 
 def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package, stop_event):
-    size = min(16 - shared_state['on_flight'], package)
+    size = min(36 - shared_state['on_flight'], package)
     for _ in range(size):
         if stop_event.is_set():
             # print("🛑 Dừng giữa batch gửi.")
             break
-        if shared_state['sent'] < total_cmds and shared_state['on_flight'] < 16:
+        if shared_state['sent'] < total_cmds and shared_state['on_flight'] < 36:
             cmd = gcode_lines[shared_state['sent']]
             success = send_uart_command(protocol, cmd)
             if success and is_motion_command(cmd):
@@ -115,14 +115,14 @@ def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package,
 
 def send_gcode_file(protocol, gcode_lines, gcode_queue, total_cmds, shared_state,
                     queue_lock, receive_done_signal, stop_event):
-    send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16, stop_event=stop_event)
+    send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=36, stop_event=stop_event)
     while shared_state['sent'] < total_cmds and not stop_event.is_set():
         receive_done_signal.wait()
         if stop_event.is_set():
             # print("🛑 Stop yêu cầu - dừng gửi")
             break
         with queue_lock:
-            send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16, stop_event=stop_event)
+            send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=36, stop_event=stop_event)
             # print(f"📤 Sent: {shared_state['sent']}  📡 On-flight: {shared_state['on_flight']}")
             receive_done_signal.clear()
 
@@ -146,7 +146,7 @@ class App:
         self.running = True
         self.last_frame = None
         self.show_mirror = True
-        self.command_queue = queue.Queue(maxsize=16)
+        self.command_queue = queue.Queue(maxsize=36)
         self.queue_lock = threading.Lock()
         self.receive_done_signal = threading.Event()
         self.stop_event = threading.Event()
