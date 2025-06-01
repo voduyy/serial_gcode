@@ -319,12 +319,11 @@ def send_gcode_file(protocol, gcode_lines, total_cmds, shared_state, queue_lock,
     send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, 36, stop_event)
     while shared_state['sent'] < total_cmds and not stop_event.is_set():
         if stop_event.is_set(): break
-
         with queue_lock:
             if shared_state['on_flight'] < PACKAGE_SIZE:
                 send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, 36, stop_event)
-                if shared_state['cmds_blocking'] == True and protocol.wait_for_receive_ok():
-                    shared_state['cmds_blocking'] = False
+            if shared_state['cmds_blocking'] == True and protocol.wait_for_receive_ok():
+                shared_state['cmds_blocking'] = False
             # receive_done_signal.clear()
 
 
