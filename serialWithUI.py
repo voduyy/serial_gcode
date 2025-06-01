@@ -9,7 +9,8 @@ import serial
 from serial.tools import list_ports
 
 import global_var
-from Image2Gcode import genGcode
+# from Image2Gcode import genGcode
+from RobotGcodeGen import RobotGcodeGen
 from serial import threaded
 import queue
 import datetime
@@ -401,10 +402,14 @@ class App:
         App.uart_log_box = self.uart_log_box
 
     def image_processing(self):
-        genGcode.main()
+        # genGcode.main()
+        messagebox.showinfo("Thành công", "Xử lý ảnh thành công")
 
     def generate_gcode(self):
-        return
+        RobotGcodeGen.main()
+        self.show_mirror = True
+        messagebox.showinfo("Thành công", "Sinh gcode thành công")
+
 
     def choose_gcode_file(self):
         filepath = filedialog.askopenfilename(
