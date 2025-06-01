@@ -17,7 +17,8 @@ from sklearn.cluster import DBSCAN
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import global_var
-
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 # Adaptive Resampling (góc + khoảng cách)
 def simplify_and_adaptive_resample(points, simplify_epsilon=1.0, angle_thresh=10, min_spacing=4):
     if len(points) < 3:
@@ -179,14 +180,15 @@ def resize_and_save_temp(image_path, output_path, max_size=(100, 100)):
 
 # --- Xử lý khuôn mặt ---
 def init_face_analyzer():
-    print("Initializing face analysis...")
+    # print("Initializing face analysis...")
     face_analyzer = insightface.app.FaceAnalysis(name='buffalo_l')
-    try:
-        face_analyzer.prepare(ctx_id=0)
-        print(f"✅ Using GPU: {face_analyzer.models['detection'].providers}")
-    except Exception:
-        print("GPU initialization failed. Switching to CPU...")
-        face_analyzer.prepare(ctx_id=-1)
+    # try:
+    #     face_analyzer.prepare(ctx_id=0)
+    #     print(f"✅ Using GPU: {face_analyzer.models['detection'].providers}")
+    # except Exception:
+    #     print("GPU initialization failed. Switching to CPU...")
+    #
+    face_analyzer.prepare(ctx_id=-1)
     return face_analyzer
 
 def align_face(image, face):
@@ -218,32 +220,32 @@ def main():
 
     input_face_dir = "input_image"
     filenames = ""
-    mode_manual = '1'
-    if not global_var.is_capture and not global_var.is_choose_image:
-        if mode_manual == '1': #handle capture
-            path = os.path.join(input_face_dir,"capture")
-            filenames = sorted(
-                [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))],
-                key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else float('inf')
-            )
-        elif mode_manual == '2': #handle test
-            path = os.path.join(input_face_dir, "test")
-            filenames = sorted(
-                [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))],
-                key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else float('inf')
-            )
-        elif mode_manual == '3':  # handle test
-            path = os.path.join(input_face_dir, "shape")
-            filenames = sorted(
-                [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))],
-                key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else float('inf')
-            )
-        else:
-            print("Chế độ không hợp lệ.")
-            exit()
-    else:  # handle which being capture or select
-        path = os.path.join(input_face_dir, "capture")
-        filenames = global_var.image_name
+    # mode_manual = '1'
+    # if not global_var.is_capture and not global_var.is_choose_image:
+    #     if mode_manual == '1': #handle capture
+    #         path = os.path.join(input_face_dir,"capture")
+    #         filenames = sorted(
+    #             [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))],
+    #             key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else float('inf')
+    #         )
+    #     elif mode_manual == '2': #handle test
+    #         path = os.path.join(input_face_dir, "test")
+    #         filenames = sorted(
+    #             [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))],
+    #             key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else float('inf')
+    #         )
+    #     elif mode_manual == '3':  # handle test
+    #         path = os.path.join(input_face_dir, "shape")
+    #         filenames = sorted(
+    #             [f for f in os.listdir(path) if f.lower().endswith(('.jpg', '.jpeg', '.png'))],
+    #             key=lambda x: int(re.search(r'\d+', x).group()) if re.search(r'\d+', x) else float('inf')
+    #         )
+    #     else:
+    #         print("Chế độ không hợp lệ.")
+    #         exit()
+         # handle which being capture or select
+    path = os.path.join(input_face_dir, "capture")
+    filenames = global_var.image_name
 
     output_image_folder = 'Image2Gcode\output_image'
     output_gcode_folder = 'Image2Gcode\output_gcode'

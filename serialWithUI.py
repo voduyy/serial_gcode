@@ -9,7 +9,7 @@ import serial
 from serial.tools import list_ports
 
 import global_var
-# from Image2Gcode import genGcode
+from Image2Gcode import genGcode
 from RobotGcodeGen import RobotGcodeGen
 from serial import threaded
 import queue
@@ -113,7 +113,7 @@ grbl_settings = [
 def show_error_codes_window(root):
     win = tk.Toplevel(root)
     win.title("📘 GRBL Error Codes")
-    win.geometry("900x500")
+    win.geometry("800x500")
 
     tree = ttk.Treeview(win, columns=("type", "code", "short_msg", "old_msg", "description"), show="headings")
     tree.pack(fill="both", expand=True)
@@ -140,7 +140,7 @@ def show_error_codes_window(root):
 def show_alarm_codes_window(root):
     win = tk.Toplevel(root)
     win.title("📘 GRBL Alarm Codes")
-    win.geometry("900x500")
+    win.geometry("800x500")
 
     tree = ttk.Treeview(win, columns=("type", "code", "short_msg", "old_msg", "description"), show="headings")
     tree.pack(fill="both", expand=True)
@@ -199,6 +199,7 @@ class SerialCommunication(serial.threaded.LineReader):
         self.ok_received = False
         self.done_queue = queue.Queue()
         self.ok_lock = threading.Lock()
+        self.stop_done = False
 
     def handle_line(self, line):
         log_uart(f"⬅️ RX: {line.strip()}")
@@ -207,6 +208,17 @@ class SerialCommunication(serial.threaded.LineReader):
                 self.ok_received = True
         elif line.strip() == "done":
             self.done_queue.put(1)
+        elif line.strip() == "[MSG:Caution: Unlocked]":
+            self.stop_done = True
+
+    def wait_for_stop_done(self, timeout=2):
+        self.stop_done = False
+        start = time.time()
+        while time.time() - start < timeout:
+            if self.stop_done:
+                return True
+            time.sleep(0.00001)
+        return False
 
     def wait_for_receive_ok(self, timeout=2):
         start = time.time()
@@ -216,7 +228,7 @@ class SerialCommunication(serial.threaded.LineReader):
             with self.ok_lock:
                 if self.ok_received:
                     return True
-            time.sleep(0.001)
+            time.sleep(0.00001)
         return False
 
     def get_done_count(self, max_count=36, timeout=1.0):
@@ -239,16 +251,20 @@ def find_uart_port():
         if "ttyACM" in port or "USB" in port or "ACM" in port or "COM" in port:
             return port
     return None
-
 def send_uart_command(protocol, cmd, wait_ok=True, retries=3):
     for _ in range(retries):
         protocol.ok_received = False
         msg = f"{cmd}\n"
         protocol.transport.write(msg.encode(ENCODING))
         log_uart(f"➡️ TX: {cmd}")
-        if not wait_ok or protocol.wait_for_receive_ok():
+        if cmd == "$X":
+            protocol.stop_done = False
+            if protocol.wait_for_stop_done():
+                return True
+        elif not wait_ok or protocol.wait_for_receive_ok():
             return True
     return False
+
 
 def reset_system(protocol):
     send_uart_command(protocol, "$X")
@@ -319,6 +335,7 @@ def receive_gcode_response(protocol, total_cmds, shared_state, queue_lock, recei
                 shared_state['on_flight'] -= done_count
                 receive_done_signal.set()
 
+
 class App:
     def __init__(self, root):
         self.root = root
@@ -328,6 +345,7 @@ class App:
         self.running = True
         self.last_frame = None
         self.show_mirror = True
+        self.is_simulate_image = False
         self.command_queue = queue.Queue(maxsize=36)
         self.queue_lock = threading.Lock()
         self.receive_done_signal = threading.Event()
@@ -386,7 +404,7 @@ class App:
                    command=lambda: show_setting_codes_window(self.root)).pack(side="left", padx=5)
         ttk.Button(code_button_frame, text="🚨 Alarm Codes", width=14,
                    command=lambda: show_alarm_codes_window(self.root)).pack(side="left", padx=5)
-
+        ttk.Button(button_frame, text="Đánh giá", width=8, command=lambda: threading.Thread(target=self.validate_result_window, daemon=True).start()).pack(side="left", padx=5)
         manual_frame = ttk.Frame(self.root)
         manual_frame.pack(pady=5)
         self.manual_entry = ttk.Entry(manual_frame, width=40)
@@ -402,18 +420,22 @@ class App:
         App.uart_log_box = self.uart_log_box
 
     def image_processing(self):
-        # genGcode.main()
-        messagebox.showinfo("Thành công", "Xử lý ảnh thành công")
+        def thread_job():
+            genGcode.main()
+            self.root.after(0, lambda: messagebox.showinfo("Thành công", "Xử lý ảnh thành công"))
+        threading.Thread(target=thread_job, daemon=True).start()
 
     def generate_gcode(self):
-        RobotGcodeGen.main()
-        self.show_mirror = True
-        messagebox.showinfo("Thành công", "Sinh gcode thành công")
-
+        def thread_job():
+            RobotGcodeGen.main()
+            self.show_mirror = True
+            global_var.is_finish_covert_image = False
+            self.root.after(0, lambda: messagebox.showinfo("Thành công", "Sinh gcode thành công"))
+        threading.Thread(target=thread_job, daemon=True).start()
 
     def choose_gcode_file(self):
         filepath = filedialog.askopenfilename(
-            initialdir="Image2Gcode/output_gcode",
+            initialdir="final_gcode/face_gcode",
             title="Chọn File gcode",
             filetypes=[("Gcode files", "*.gcode *.nc *.txt")]
         )
@@ -429,14 +451,18 @@ class App:
         threading.Thread(target=self.send_gcode_in_background, daemon=True).start()
 
     def do_continue_gcode(self):
-        if self.gcode_file_path:
-            self.stop_event.clear()
-            threading.Thread(target=self.send_gcode_in_background, daemon=True).start()
+        def continue_thread():
+            if self.gcode_file_path:
+                self.stop_event.clear()
+                threading.Thread(target=self.send_gcode_in_background, daemon=True).start()
+        threading.Thread(target=continue_thread, daemon=True).start()
 
     def do_stop(self):
         self.stop_event.set()
-        if self.protocol:
-            send_uart_command(self.protocol, "$X")
+        def stop_thread():
+            if self.protocol:
+                send_uart_command(self.protocol, "$X", False)
+        threading.Thread(target=stop_thread, daemon=True).start()
 
     def send_gcode_in_background(self):
         gcode_lines = read_gcode_file(self.gcode_file_path)
@@ -475,11 +501,13 @@ class App:
         self.protocol = thread.connect()[1]
         send_uart_command(self.protocol, "$$", wait_ok=False)
 
-    def start_camera(self):
-        self.cap = cv2.VideoCapture(0)
-        # Cố gắng điều chỉnh ánh sáng, độ tương phản
+    def start_camera(self, camera_index=0):
+        if self.cap:
+            self.cap.release()
+        self.cap = cv2.VideoCapture(camera_index)
         if not self.cap.isOpened():
-            messagebox.showerror("Error", "Không thể mở camera.")
+            messagebox.showerror("Lỗi", "Không thể mở camera.")
+            self.cap = None
             return
         threading.Thread(target=self.capture_loop, daemon=True).start()
 
@@ -492,25 +520,27 @@ class App:
                 rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 show_img = Image.fromarray(rgb).resize((IMG_WIDTH, IMG_HEIGHT))
                 self.root.after(0, lambda: self.display_image(self.left_img_label, show_img))
-                image_handle_name = os.path.splitext(global_var.image_name)[0]
                 if global_var.is_finish_covert_image:
+                    image_handle_name = os.path.splitext(global_var.image_name)[0]
                     self.show_mirror = False
                     img_after_processing = (Image.open(f"Image2Gcode/output_image/{image_handle_name}_binary.jpg")
                            .resize((500, 500)))
                     self.root.after(0, lambda: self.display_image(self.right_img_label, img_after_processing))
                 elif self.show_mirror:
                     self.root.after(0, lambda: self.display_image(self.right_img_label, show_img))
-            time.sleep(0.03)
+                elif self.is_simulate_image:
+                    img_after_processing = (Image.open(f"Image2Gcode/simulate_image/{global_var.index_capture_image}.jpg")
+                                            .resize((IMG_WIDTH, IMG_HEIGHT)))
+            time.sleep(0.0003)
 
     def switch_source(self):
         if self.source_var.get() == "in_camera":
             if self.cap is None:
-                self.start_camera()
+                self.start_camera(camera_index=0)
             self.show_mirror = True
         else:
-            if self.cap:
-                self.cap.release()
-                self.cap = None
+            if self.cap is None:
+                self.start_camera(camera_index=1)
             self.show_mirror = False
 
     def choose_image(self):
@@ -531,8 +561,12 @@ class App:
         self.display_image(self.right_img_label, choose_img)
         messagebox.showinfo("Thành công", f"Chọn thành công ảnh {filename_image}.")
         global_var.is_choose_image = True
-        # global_var.is_capture = False
+        self.is_simulate_image = False
         self.show_mirror = False
+    def validate_result_window(self):
+        self.is_simulate_image = True
+        self.show_mirror = False
+        pass
 
     def capture_frame(self):
         if self.last_frame is not None:
@@ -546,6 +580,7 @@ class App:
             img.save(f"Image2Gcode/input_image/capture/{global_var.index_capture_image}.jpg")
             self.display_image(self.right_img_label, img)
             self.show_mirror = False
+            self.is_simulate_image = False
 
     def display_image(self, label, img):
         imgtk = ImageTk.PhotoImage(img)

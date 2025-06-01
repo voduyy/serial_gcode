@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 from roboticstoolbox import DHRobot, RevoluteDH
 from spatialmath import SE3
 import re
@@ -9,65 +8,69 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import global_var
 # ===== Định nghĩa robot =====
 # L1, L2, L3, L4 = 0.1537, 0.1433, 0.077, 0.1203
+# ===== Hàm tính G-code giữ G0/G1 và ưu tiên nghiệm gần nhất =====
+L1, L2, L3, L4 = 0.1537, 0.1433, 0.0, 0.1443
+laser_extension = 0.075  # 7.5 cm
+deg = np.pi / 180
+robot = DHRobot([
+    RevoluteDH(d=L1, a=0, alpha=-np.pi / 2, offset=np.pi / 2, qlim=[-90 * deg, 90 * deg]),
+    RevoluteDH(d=0, a=L2, alpha=0, offset=-np.pi / 2, qlim=[-90 * deg, 90 * deg]),
+    RevoluteDH(d=L3, a=0, alpha=np.pi / 2, offset=np.pi / 2, qlim=[-120 * deg, 120 * deg]),
+    RevoluteDH(d=L4, a=0, alpha=np.pi / 2, offset=0, qlim=[-180 * deg, 180 * deg])
+
+], name='3DOF_Robot')
+q = np.zeros(4)  # Khởi tạo nghiệm ban đầu là 0
+# robot.teach(q)
+# ===== Hệ số chuyển đổi góc → bước (mm) =====
+STEP_CONVERT = {
+    'X': 0.355555,
+    'Y': 0.355555,
+    'Z': 0.216666,
+    'A': 0.133333,
+}
+def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
+    # Mục tiêu: Y luôn là [0, -1, 0]
+    y_axis = np.array([0, -1, 0])  # Hướng Y của đầu cuối
+    # Giả sử trục Z hướng lên (hoặc trùng với hướng làm việc)
+    z_axis = np.array([0, 0, 0])
+    # Dùng tích có hướng để tìm trục X vuông góc với Y và Z
+    x_axis = np.cross(y_axis, z_axis)
+    # Xây ma trận quay (mỗi cột là một trục)
+    R_goal = np.column_stack((x_axis, y_axis, z_axis))
+    # Vị trí mong muốn
+    # T_goal = SE3(R_goal) * SE3(x, y, z)
+    T_goal = SE3(x, y, z)
+    for attempt in range(max_attempts):
+        ik_result = robot.ikine_LM(T_goal, q0=q0, mask=[1, 1, 1, 0, 1, 0])
+        if ik_result.success:
+            T_actual = robot.fkine(ik_result.q)
+            # y_actual = T_actual.R[:, 1]
+            # print("🔍 Y hướng thực tế của đầu cuối:", y_actual)
+        if not ik_result.success:
+            continue
+
+        q_deg = np.degrees(ik_result.q)
+
+        if -90 < q_deg[0] < 90 and -120 < q_deg[1] < 120 and -120 < q_deg[2] < 120:
+            x_step = -q_deg[0] * STEP_CONVERT['X']
+            y_step = -q_deg[1] * STEP_CONVERT['Y']
+            z_step = q_deg[2] * STEP_CONVERT['Z']
+            a_step = q_deg[3] * STEP_CONVERT['A']
+            gcode_line = f"{cmd} X{x_step:.3f} Y{y_step:.3f} Z{z_step:.3f} A{a_step:.3f} F2700"
+            return gcode_line, q_deg, ik_result.q
+
+    return None, None, None
 def main():
-    L1, L2, L3, L4 = 0.1537, 0.1433, 0.0, 0.1443
-    laser_extension = 0.075  # 7.5 cm
-    deg = np.pi / 180
-    robot = DHRobot([
-        RevoluteDH(d=L1, a=0, alpha=-np.pi / 2, offset=np.pi / 2, qlim=[-90 * deg, 90 * deg]),
-        RevoluteDH(d=0, a=L2, alpha=0, offset=-np.pi / 2, qlim=[-90 * deg, 90 * deg]),
-        RevoluteDH(d=L3, a=0, alpha=np.pi / 2, offset=np.pi / 2, qlim=[-120 * deg, 120 * deg]),
-        RevoluteDH(d=L4, a=0, alpha=np.pi / 2, offset=0, qlim=[-180 * deg, 180 * deg])
-
-    ], name='3DOF_Robot')
-    q = np.zeros(4)  # Khởi tạo nghiệm ban đầu là 0
-    robot.teach(q)
-    # ===== Hệ số chuyển đổi góc → bước (mm) =====
-    STEP_CONVERT = {
-        'X': 0.355555,
-        'Y': 0.355555,
-        'Z': 0.216666,
-        'A': 0.133333,
-    }
-
-    # ===== Hàm tính G-code giữ G0/G1 và ưu tiên nghiệm gần nhất =====
-
-    def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
-        # Mục tiêu: Y luôn là [0, -1, 0]
-        y_axis = np.array([0, -1, 0])  # Hướng Y của đầu cuối
-        # Giả sử trục Z hướng lên (hoặc trùng với hướng làm việc)
-        z_axis = np.array([0, 0, 0])
-        # Dùng tích có hướng để tìm trục X vuông góc với Y và Z
-        x_axis = np.cross(y_axis, z_axis)
-        # Xây ma trận quay (mỗi cột là một trục)
-        R_goal = np.column_stack((x_axis, y_axis, z_axis))
-        # Vị trí mong muốn
-        # T_goal = SE3(R_goal) * SE3(x, y, z)
-        T_goal = SE3(x, y, z)
-        for attempt in range(max_attempts):
-            ik_result = robot.ikine_LM(T_goal, q0=q0, mask=[1, 1, 1, 0, 1, 0])
-            if ik_result.success:
-                T_actual = robot.fkine(ik_result.q)
-                # y_actual = T_actual.R[:, 1]
-                # print("🔍 Y hướng thực tế của đầu cuối:", y_actual)
-            if not ik_result.success:
-                continue
-
-            q_deg = np.degrees(ik_result.q)
-
-            if -90 < q_deg[0] < 90 and -120 < q_deg[1] < 120 and -120 < q_deg[2] < 120:
-                x_step = -q_deg[0] * STEP_CONVERT['X']
-                y_step = -q_deg[1] * STEP_CONVERT['Y']
-                z_step = q_deg[2] * STEP_CONVERT['Z']
-                a_step = q_deg[3] * STEP_CONVERT['A']
-                gcode_line = f"{cmd} X{x_step:.3f} Y{y_step:.3f} Z{z_step:.3f} A{a_step:.3f} F2700"
-                return gcode_line, q_deg, ik_result.q
-
-        return None, None, None
 
     # ===== Đọc và xử lý file G-code =====
-    path_input_file = 'Image2Gcode/output_gcode'
-    input_file = os.path.join(path_input_file, global_var.image_name)
+    # Lấy đường dẫn thư mục chứa file script đang chạy
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Đi lên một cấp thư mục
+    parent_dir = os.path.abspath(os.path.join(base_dir, ".."))
+    path_input_file = os.path.join(parent_dir, 'Image2Gcode', 'output_gcode')
+    input_file = os.path.join(path_input_file, f"{global_var.index_capture_image}_gcode.nc")
+    filename= f"{global_var.index_capture_image}_gcode.nc"
     print(input_file)
 
     pattern = re.compile(
@@ -163,7 +166,7 @@ def main():
             q0 = q_rad
 
     # ===== Ghi file kết quả G-code =====
-    output_file = f"final_gcode/{global_var.image_name}"
+    output_file = f"final_gcode/face_gcode/{global_var.index_capture_image}.txt"
     print(output_file)
     with open(output_file, "w") as f:
         for line in gcode_lines:
@@ -171,11 +174,11 @@ def main():
     print(f"\n✅ Đã lưu {len(gcode_lines)} dòng vào '{output_file}'")
 
     # ===== Ghi file góc khớp ra file riêng =====
-    angle_file = f"RobotGcodeGen/output_degree/{global_var.image_name}.txt"
-    with open(angle_file, "w") as f:
-        for q_deg in q_list:
-            f.write("{:.4f},{:.4f},{:.4f},{:.4f}\n".format(*q_deg))
-    print(f"✅ Đã lưu góc khớp vào '{angle_file}'")
+    # angle_file = f"RobotGcodeGen/output_degree/{global_var.index_capture_image}.txt"
+    # with open(angle_file, "w") as f:
+    #     for q_deg in q_list:
+    #         f.write("{:.4f},{:.4f},{:.4f},{:.4f}\n".format(*q_deg))
+    # print(f"✅ Đã lưu góc khớp vào '{angle_file}'")
 #===== Plot đường đi đầu cuối =====
 # if q_list:
 #     positions = [robot.fkine(np.radians(q)).t for q in q_list]
