@@ -217,6 +217,7 @@ def main():
     face_model = init_face_analyzer()
 
     input_face_dir = "input_image"
+    filenames = ""
     mode_manual = '1'
     if not global_var.is_capture and not global_var.is_choose_image:
         if mode_manual == '1': #handle capture
