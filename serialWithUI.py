@@ -404,7 +404,8 @@ class App:
                    command=lambda: show_setting_codes_window(self.root)).pack(side="left", padx=5)
         ttk.Button(code_button_frame, text="🚨 Alarm Codes", width=14,
                    command=lambda: show_alarm_codes_window(self.root)).pack(side="left", padx=5)
-        ttk.Button(button_frame, text="Đánh giá", width=8, command=lambda: threading.Thread(target=self.validate_result_window, daemon=True).start()).pack(side="left", padx=5)
+        ttk.Button(button_frame, text="Đánh giá", width=8,
+                   command=lambda: threading.Thread(target=self.validate_result_window, daemon=True).start()).pack(side="left", padx=5)
         manual_frame = ttk.Frame(self.root)
         manual_frame.pack(pady=5)
         self.manual_entry = ttk.Entry(manual_frame, width=40)
@@ -529,9 +530,12 @@ class App:
                 elif self.show_mirror:
                     self.root.after(0, lambda: self.display_image(self.right_img_label, show_img))
                 elif self.is_simulate_image:
-                    img_after_processing = (Image.open(f"Image2Gcode/simulate_image/{global_var.index_capture_image}.jpg")
-                                            .resize((IMG_WIDTH, IMG_HEIGHT)))
-            time.sleep(0.0003)
+                    image_handle_simulate_name = os.path.splitext(global_var.image_name)[0]
+                    image_simulate = (Image.open(f"Image2Gcode/simulate_image/{image_handle_simulate_name}.png")
+                                            .resize((500, 500)))
+                    self.root.after(0, lambda: self.display_image(self.right_img_label, image_simulate))
+
+            time.sleep(0.0001)
 
     def switch_source(self):
         if self.source_var.get() == "in_camera":
@@ -565,8 +569,9 @@ class App:
         self.show_mirror = False
     def validate_result_window(self):
         self.is_simulate_image = True
+        global_var.is_finish_covert_image = False
         self.show_mirror = False
-        pass
+        print("Is pressed")
 
     def capture_frame(self):
         if self.last_frame is not None:

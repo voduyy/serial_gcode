@@ -7,7 +7,6 @@ import rembg
 from PIL import Image
 import os
 from datetime import datetime
-import re
 from openpyxl import Workbook
 from openpyxl.drawing.image import Image as XLImage
 from PIL import Image as PILImage
@@ -15,6 +14,8 @@ from openpyxl.styles import Font
 import matplotlib.pyplot as plt
 from sklearn.cluster import DBSCAN
 import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '.')))
+import plot_gcode
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import global_var
 import warnings
@@ -372,6 +373,9 @@ def main():
     wb.save(os.path.join(excel_folder, 'time_processing.xlsx'))
     print("\n🎉 Xử lý hoàn tất toàn bộ ảnh!")
     global_var.is_finish_covert_image = True
+    image_gcode_name = os.path.splitext(global_var.image_name)[0]
+    plot_gcode.draw_gcode_and_save(f"Image2Gcode/output_gcode/{image_gcode_name}_gcode.nc",
+                        f"Image2Gcode/simulate_image/{image_gcode_name}.png", angle_deg=180)
 
 if __name__ == '__main__':
     main()
