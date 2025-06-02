@@ -220,6 +220,7 @@ class App:
     def do_continue_gcode(self):
         if self.gcode_file_path:
             # print(f"🔁 Tiếp tục từ dòng {self.shared_state['sent']}")
+            #hello
             self.stop_event.clear()
             threading.Thread(target=self.send_gcode_in_background, daemon=True).start()
 
