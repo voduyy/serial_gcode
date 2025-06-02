@@ -298,83 +298,116 @@ def is_blocking_command(cmd):
 def is_motion_command(cmd):
     return cmd.startswith("G0") or cmd.startswith("G1")
 
-def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package, stop_event):
-    size = min(PACKAGE_SIZE - shared_state['on_flight'], package)
+# def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package, stop_event):
+#     # size = min(PACKAGE_SIZE - shared_state['on_flight'], package)
+#     size = PACKAGE_SIZE - shared_state['on_flight']
+#     for _ in range(size):
+#         if stop_event.is_set():
+#             break
+#         if shared_state['sent'] >= total_cmds or shared_state['on_flight'] >= PACKAGE_SIZE:
+#             break
+#
+#         cmd = gcode_lines[shared_state['sent']]
+#         state_send = send_uart_command(protocol, cmd, wait_ok=False)
+#
+#         if is_motion_command(cmd):
+#             shared_state['on_flight'] += 1
+#
+#         if is_blocking_command(cmd):
+#             shared_state['blocking_waiting_ok'] = True
+#             shared_state['last_blocking_index'] = shared_state['sent']
+#         shared_state['sent'] += 1
+#         print(f"On flight: {shared_state['on_flight']}")
+def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package, stop_event, queue_lock):
+    size = PACKAGE_SIZE
+    with queue_lock:
+        size -= shared_state['on_flight']
+
     for _ in range(size):
         if stop_event.is_set():
             break
-        if shared_state['sent'] >= total_cmds or shared_state['on_flight'] >= PACKAGE_SIZE:
-            break
 
-        cmd = gcode_lines[shared_state['sent']]
-        send_uart_command(protocol, cmd, wait_ok=False)
+        with queue_lock:
+            if shared_state['sent'] >= total_cmds or shared_state['on_flight'] >= PACKAGE_SIZE:
+                break
+            cmd = gcode_lines[shared_state['sent']]
+            shared_state['sent'] += 1
 
-        shared_state['sent'] += 1
-        if is_motion_command(cmd):
-            shared_state['on_flight'] += 1
+        state_send = send_uart_command(protocol, cmd, wait_ok=False)
 
-        if is_blocking_command(cmd):
-            shared_state['blocking_waiting_ok'] = True
-            shared_state['last_blocking_index'] = shared_state['sent'] - 1
-        print(f"On flight: {shared_state['on_flight']}")
+        with queue_lock:
+            if is_motion_command(cmd):
+                shared_state['on_flight'] += 1
+
+            if is_blocking_command(cmd):
+                shared_state['blocking_waiting_ok'] = True
+                shared_state['last_blocking_index'] = shared_state['sent']
 
 def send_gcode_file(protocol, gcode_lines, total_cmds, shared_state, queue_lock, send_signal, stop_event):
-    with queue_lock:
-        send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, 36, stop_event)
+    def send_gcode_file_thread():
+        if shared_state['on_flight'] < PACKAGE_SIZE:
+            send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, 36, stop_event, queue_lock)
 
-    while shared_state['sent'] < total_cmds and not stop_event.is_set():
-        send_signal.wait()
-        send_signal.clear()
+        while shared_state['sent'] < total_cmds and not stop_event.is_set():
+            send_signal.wait()
+            send_signal.clear()
 
-        if stop_event.is_set():
-            break
+            if stop_event.is_set():
+                break
 
-        with queue_lock:
+            # with queue_lock:
             if shared_state['on_flight'] < PACKAGE_SIZE:
-                send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, 36, stop_event)
+                send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, 36, stop_event, queue_lock)
             print(f"On flight: {shared_state['on_flight']}")
+    threading.Thread(target=send_gcode_file_thread, daemon=True).start()
 
 def receive_gcode_ok(protocol, shared_state, queue_lock, send_signal, stop_event):
-    while not stop_event.is_set():
-        ok_count = protocol.get_ok_count(timeout=1.0)
-        if ok_count == 0:
-            continue
+    def receive_gcode_ok_thread():
+        while not stop_event.is_set():
+            ok_count = protocol.get_ok_count(timeout=2.0)
+            if ok_count == 0:
+                continue
 
-        with queue_lock:
-            # If blocking command was waiting and now returned OK
-            if shared_state['blocking_waiting_ok']:
-                shared_state['blocking_waiting_ok'] = False
-                shared_state['on_flight'] -= 1
-                shared_state['received'] += 1
-                shared_state['on_flight'] -= shared_state['delayed_done']
-                shared_state['received'] += shared_state['delayed_done']
-                shared_state['delayed_done'] = 0
-            else:
-                shared_state['on_flight'] -= ok_count
-                shared_state['received'] += ok_count
+            with queue_lock:
+                # If blocking command was waiting and now returned OK
+                if shared_state['blocking_waiting_ok']:
+                    shared_state['blocking_waiting_ok'] = False
+                    shared_state['on_flight'] -= 1
+                    shared_state['received'] += 1
+                    shared_state['on_flight'] -= shared_state['delayed_done']
+                    shared_state['received'] += shared_state['delayed_done']
+                    shared_state['delayed_done'] = 0
+                else:
+                    shared_state['on_flight'] -= ok_count
+                    shared_state['received'] += ok_count
 
-            if shared_state['on_flight'] < PACKAGE_SIZE:
-                send_signal.set()
-    stop_event.clear()
+                if shared_state['on_flight'] < PACKAGE_SIZE:
+                    send_signal.set()
+        stop_event.clear()
+
+    threading.Thread(target=receive_gcode_ok_thread, daemon=True).start()
 
 def receive_gcode_done(protocol, total_cmds, shared_state, queue_lock, send_signal, stop_event):
-    while not stop_event.is_set():
-        done_count = protocol.get_done_count(timeout=1.0)
-        if done_count == 0:
-            continue
+    def receive_gcode_done_thread():
+        while not stop_event.is_set():
+            done_count = protocol.get_done_count(timeout=2.0)
+            if done_count == 0:
+                continue
 
-        with queue_lock:
-            if shared_state['blocking_waiting_ok']:
-                shared_state['delayed_done'] += done_count
-            else:
-                shared_state['received'] += done_count
-                shared_state['on_flight'] -= done_count
+            with queue_lock:
+                if shared_state['blocking_waiting_ok']:
+                    shared_state['delayed_done'] += done_count
+                else:
+                    shared_state['received'] += done_count
+                    shared_state['on_flight'] -= done_count
 
-            if shared_state['on_flight'] < PACKAGE_SIZE:
-                send_signal.set()
-            if shared_state['received'] >= total_cmds:
-                stop_event.set()
-    stop_event.clear()
+                if shared_state['on_flight'] < PACKAGE_SIZE:
+                    send_signal.set()
+                if shared_state['received'] >= total_cmds:
+                    stop_event.set()
+        stop_event.clear()
+    threading.Thread(target=receive_gcode_done_thread, daemon=True).start()
+
 
 class App:
     def __init__(self, root):
