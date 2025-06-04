@@ -7,7 +7,7 @@ import threading
 import time
 import serial
 from serial.tools import list_ports
-
+import recv_phone_image
 import global_var
 from Image2Gcode import genGcode
 from RobotGcodeGen import RobotGcodeGen
@@ -274,22 +274,22 @@ def reset_system(protocol):
     protocol.get_done_count()
 
 def run_initialization_sequence(protocol, stop_event):
-    cmds = ["$X", "$HX", "$HY", "$HZ", "$HA", "$HB"]
+    cmds = ["$X", "$HX", "$HY", "$HZ", "$HA", "$HB", "G92 X0 Y0 Z0 A0 B0"]
     for cmd in cmds:
         if stop_event.is_set(): return
         send_uart_command(protocol, cmd)
     protocol.get_done_count()
 
 def read_gcode_file(filename):
-    lines = []
+    gcode_lines = []
     with open(filename, "r") as f:
         for line in f:
             line = line.strip()
             if '(' in line:
                 line = line.split('(')[0].strip()
             if line:
-                lines.append(line)
-    return lines
+                gcode_lines.append(line)
+    return gcode_lines
 
 def is_m_command(cmd):
     return cmd.startswith("M")
@@ -353,6 +353,7 @@ class App:
         self.shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
         self.gcode_file_path = None
         self.gcode_path_var = tk.StringVar(value="Chưa chọn file G-code")
+        self.start_recv_thread()
 
         self.build_gui()
         self.start_serial()
@@ -466,12 +467,13 @@ class App:
         threading.Thread(target=stop_thread, daemon=True).start()
 
     def send_gcode_in_background(self):
-        gcode_lines = read_gcode_file(self.gcode_file_path)
-        total_cmds = len(gcode_lines)
+        self.gcode_lines = read_gcode_file(self.gcode_file_path)
+        total_cmds = len(self.gcode_lines)
         self.stop_event.clear()
         self.shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
         threading.Thread(target=send_gcode_file,
-                         args=(self.protocol, gcode_lines, total_cmds, self.shared_state, self.queue_lock, self.receive_done_signal, self.stop_event),
+                         args=(self.protocol, self.gcode_lines, total_cmds, self.shared_state, self.queue_lock,
+                               self.receive_done_signal, self.stop_event),
                          daemon=True).start()
         threading.Thread(target=receive_gcode_response,
                          args=(self.protocol, total_cmds, self.shared_state, self.queue_lock, self.receive_done_signal, self.stop_event),
@@ -565,6 +567,8 @@ class App:
         self.display_image(self.right_img_label, choose_img)
         messagebox.showinfo("Thành công", f"Chọn thành công ảnh {filename_image}.")
         global_var.is_choose_image = True
+        global_var.is_get_image_from_phone = False
+        global_var.is_capture = False
         self.is_simulate_image = False
         self.show_mirror = False
     def validate_result_window(self):
@@ -576,7 +580,8 @@ class App:
     def capture_frame(self):
         if self.last_frame is not None:
             global_var.is_finish_covert_image = False
-            # global_var.is_choose_image = False
+            global_var.is_choose_image = False
+            global_var.is_get_image_from_phone = False
             global_var.index_capture_image += 1
             global_var.is_capture = True
             global_var.image_name = ""
@@ -586,6 +591,30 @@ class App:
             self.display_image(self.right_img_label, img)
             self.show_mirror = False
             self.is_simulate_image = False
+
+    def start_recv_thread(self):
+        def recv_loop():
+            while True:
+                try:
+                    image_path = recv_phone_image.receive_file()
+                    if image_path:
+                        img = Image.open(image_path)
+                        img = img.resize((int(1836 * 480 / 3264), 480), Image.LANCZOS)
+                        self.right_img_label.after(0, lambda: self.display_image(self.right_img_label, img))
+
+                        self.show_mirror = False
+                        self.is_simulate_image = False
+                        global_var.is_capture = False
+                        global_var.is_choose_image = False
+                        global_var.is_get_image_from_phone = True
+
+                except Exception as e:
+                    print(f"[!] Lỗi khi nhận ảnh: {e}")
+                    time.sleep(1)  # Tránh chiếm CPU nếu có lỗi lặp
+
+        # Tạo và khởi chạy thread
+        recv_thread = threading.Thread(target=recv_loop, daemon=True)
+        recv_thread.start()
 
     def display_image(self, label, img):
         imgtk = ImageTk.PhotoImage(img)
@@ -613,6 +642,7 @@ if __name__ == "__main__":
     global_var.is_capture = False
     global_var.is_finish_covert_image = False
     global_var.is_choose_image = False
+    global_var.is_get_image_from_phone = False
     root = tk.Tk()
     app = App(root)
     root.protocol("WM_DELETE_WINDOW", app.on_close)

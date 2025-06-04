@@ -218,8 +218,11 @@ def resize_to_a4(image, target_width=300, target_height=300):
 # === Main pipeline ===
 def main():
     face_model = init_face_analyzer()
-
-    input_face_dir = "input_image"
+    if not global_var.is_get_image_from_phone:
+        input_face_dir = "input_image"
+        path = os.path.join(input_face_dir, "capture")
+    else:
+        input_face_dir = "..\phone_image"
     filenames = ""
     # mode_manual = '1'
     # if not global_var.is_capture and not global_var.is_choose_image:
@@ -245,7 +248,6 @@ def main():
     #         print("Chế độ không hợp lệ.")
     #         exit()
          # handle which being capture or select
-    path = os.path.join(input_face_dir, "capture")
     filenames = global_var.image_name
 
     output_image_folder = 'Image2Gcode\output_image'
@@ -283,7 +285,10 @@ def main():
         print(f"\n📂 Đang xử lý ảnh: {file}")
         start_time = datetime.now()
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        input_path = os.path.join(base_dir, path, file)
+        if not global_var.is_get_image_from_phone:
+            input_path = os.path.join(base_dir, path, file)
+        else:
+            input_path = os.path.join("phone_image", file)
         image = cv2.imread(input_path)
         if image is None:
             print(f"⚠️ Không đọc được ảnh: {file}")
