@@ -590,10 +590,13 @@ class App:
         self.protocol = thread.connect()[1]
         send_uart_command(self.protocol, "$$", wait_ok=False)
 
-    def start_camera(self):
-        self.cap = cv2.VideoCapture(0)
+    def start_camera(self, camera_index=0):
+        if self.cap:
+            self.cap.release()
+        self.cap = cv2.VideoCapture(camera_index)
         if not self.cap.isOpened():
-            messagebox.showerror("Error", "Không thể mở camera.")
+            messagebox.showerror("Lỗi", "Không thể mở camera.")
+            self.cap = None
             return
         threading.Thread(target=self.capture_loop, daemon=True).start()
 
@@ -618,13 +621,13 @@ class App:
     def switch_source(self):
         if self.source_var.get() == "in_camera":
             if self.cap is None:
-                self.start_camera()
+                self.start_camera(camera_index=0)
             self.show_mirror = True
         else:
-            if self.cap:
-                self.cap.release()
-                self.cap = None
-            self.show_mirror = False
+            if self.cap is None:
+                self.start_camera(camera_index=1)
+            self.show_mirror = True
+
 
     def choose_image(self):
         global filename
