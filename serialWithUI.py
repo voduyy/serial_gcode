@@ -43,7 +43,7 @@ class SerialCommunication(serial.threaded.LineReader):
             time.sleep(0.0001)
         return False
 
-    def get_done_count(self, max_count=16, timeout=1.0):
+    def get_done_count(self, max_count=36, timeout=1.0):
         count = 0
         end_time = time.time() + timeout
         while count < max_count:
@@ -99,12 +99,12 @@ def is_motion_command(cmd):
     return cmd.startswith("G0") or cmd.startswith("G1")
 
 def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package, stop_event):
-    size = min(16 - shared_state['on_flight'], package)
+    size = 36 - shared_state['on_flight']
     for _ in range(size):
         if stop_event.is_set():
             # print("🛑 Dừng giữa batch gửi.")
             break
-        if shared_state['sent'] < total_cmds and shared_state['on_flight'] < 16:
+        if shared_state['sent'] < total_cmds and shared_state['on_flight'] < 36:
             cmd = gcode_lines[shared_state['sent']]
             success = send_uart_command(protocol, cmd)
             if success and is_motion_command(cmd):
@@ -116,15 +116,15 @@ def send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package,
 
 def send_gcode_file(protocol, gcode_lines, gcode_queue, total_cmds, shared_state,
                     queue_lock, receive_done_signal, stop_event):
-    send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16, stop_event=stop_event)
+    send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=36, stop_event=stop_event)
     while shared_state['sent'] < total_cmds and not stop_event.is_set():
         receive_done_signal.wait()
         if stop_event.is_set():
             # print("🛑 Stop yêu cầu - dừng gửi")
             break
         with queue_lock:
-            send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=16, stop_event=stop_event)
-            # print(f"📤 Sent: {shared_state['sent']}  📡 On-flight: {shared_state['on_flight']}")
+            send_gcode_package(protocol, gcode_lines, total_cmds, shared_state, package=36, stop_event=stop_event)
+            print(f"📤 Sent: {shared_state['sent']}  📡 On-flight: {shared_state['on_flight']}")
             receive_done_signal.clear()
 
 def receive_gcode_response(protocol, gcode_lines, gcode_queue, total_cmds, shared_state,
@@ -135,7 +135,7 @@ def receive_gcode_response(protocol, gcode_lines, gcode_queue, total_cmds, share
             with queue_lock:
                 shared_state['received'] += done_count
                 shared_state['on_flight'] -= done_count
-                # print(f"✅ Done: {shared_state['received']}  📉 On-flight: {shared_state['on_flight']}")
+                print(f"✅ Done: {shared_state['received']}  📉 On-flight: {shared_state['on_flight']}")
                 receive_done_signal.set()
 
 class App:
@@ -147,7 +147,7 @@ class App:
         self.running = True
         self.last_frame = None
         self.show_mirror = True
-        self.command_queue = queue.Queue(maxsize=16)
+        self.command_queue = queue.Queue(maxsize=36)
         self.queue_lock = threading.Lock()
         self.receive_done_signal = threading.Event()
         self.stop_event = threading.Event()
@@ -201,6 +201,7 @@ class App:
         manual_frame.pack(pady=5)
         self.manual_entry = ttk.Entry(manual_frame, width=40)
         self.manual_entry.pack(side="left", padx=5)
+        self.manual_entry.bind("<Return>", lambda event: self.send_manual_command())
         ttk.Button(manual_frame, text="📨 Gửi lệnh", command=self.send_manual_command).pack(side="left", padx=5)
 
     def choose_gcode_file(self):
@@ -245,15 +246,20 @@ class App:
                                self.shared_state, self.queue_lock, self.receive_done_signal, self.stop_event),
                          daemon=True).start()
 
+    # def send_manual_command(self):
+    #     if self.protocol:
+    #         cmd = self.manual_entry.get().strip().upper()
+    #         if cmd in ["CTRL X", "CTRL+X"]:
+    #             self.protocol.transport.write(b'\x18')
+    #             # print("📨 Gửi: Ctrl+X (0x18)")
+    #         else:
+    #             send_uart_command(self.protocol, cmd)
+    #         self.manual_entry.delete(0, tk.END)
     def send_manual_command(self):
-        if self.protocol:
-            cmd = self.manual_entry.get().strip().upper()
-            if cmd in ["CTRL X", "CTRL+X"]:
-                self.protocol.transport.write(b'\x18')
-                # print("📨 Gửi: Ctrl+X (0x18)")
-            else:
-                send_uart_command(self.protocol, cmd)
-            self.manual_entry.delete(0, tk.END)
+        cmd = self.manual_entry.get().strip().upper()
+        self.manual_entry.delete(0, tk.END)
+        threading.Thread(target=self._manual_cmd_thread, args=(cmd,), daemon=True).start()
+
 
     def start_serial(self):
         port = find_uart_port()
