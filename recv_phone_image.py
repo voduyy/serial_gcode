@@ -1,6 +1,7 @@
 import socket
 import os
 import global_var
+import time
 # Cấu hình server
 SERVER_IP = "0.0.0.0"  # Lắng nghe trên mọi địa chỉ IP
 SERVER_PORT = 8988
@@ -21,6 +22,7 @@ def receive_file():
         conn, addr = server_socket.accept()  # Chấp nhận kết nối
         with conn:
             print(f"Đã kết nối với {addr}")
+            start_time = time.time()
             # Nhận tên tệp từ client
             file_name_length = int.from_bytes(conn.recv(4), byteorder='big')  # Nhận chiều dài của tên tệp
             file_name = conn.recv(file_name_length).decode("utf-8")  # Nhận tên tệp với chiều dài đã biết
@@ -28,7 +30,6 @@ def receive_file():
             file_name = f"{global_var.index_capture_image}.jpg"
             global_var.image_name = file_name
             print(f"Nhận tệp: {file_name}")
-
             # Xác định đường dẫn lưu tệp
             save_path = os.path.join(SAVE_DIR, file_name)
 
@@ -40,7 +41,9 @@ def receive_file():
                         break
                     file.write(data)
                     print(f"Đã nhận {len(data)} byte dữ liệu")
+            end_time = time.time() - start_time
 
+            print(f"Thời gian nhận và ghi file là {end_time}")
             print(f"Tệp {file_name} đã nhận và lưu thành công tại {save_path}")
     return save_path
 # def close_socket():
