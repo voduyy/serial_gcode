@@ -21,7 +21,7 @@ ENCODING = 'utf-8'
 IMG_WIDTH = 640
 IMG_HEIGHT = 480
 MAX_LOG_LINES = 500
-PACKAGE_SIZE = 36
+PACKAGE_SIZE = 36 # 24
 
 error_codes_to_message = [
     (1, "Expected command letter", "Expected command letter", "G-code words consist of a letter and a value. Letter was not found."),
@@ -620,11 +620,15 @@ class App:
 
     def switch_source(self):
         if self.source_var.get() == "in_camera":
-            if self.cap is None:
+            if self.cap:
+                self.cap.release()
+            elif self.cap is None:
                 self.start_camera(camera_index=0)
             self.show_mirror = True
         else:
-            if self.cap is None:
+            if self.cap:
+                self.cap.release()
+            elif self.cap is None:
                 self.start_camera(camera_index=1)
             self.show_mirror = True
 
