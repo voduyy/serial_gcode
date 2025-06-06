@@ -541,13 +541,17 @@ class App:
 
     def switch_source(self):
         if self.source_var.get() == "in_camera":
-            if self.cap is None:
+            if self.cap:
+                self.cap.release()
+            elif self.cap is None:
                 self.start_camera(camera_index=0)
             self.show_mirror = True
         else:
-            if self.cap is None:
+            if self.cap:
+                self.cap.release()
+            elif self.cap is None:
                 self.start_camera(camera_index=1)
-            self.show_mirror = False
+            self.show_mirror = True
 
     def choose_image(self):
         global filename_image
