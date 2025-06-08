@@ -260,7 +260,13 @@ class App:
         self.manual_entry.delete(0, tk.END)
         threading.Thread(target=self._manual_cmd_thread, args=(cmd,), daemon=True).start()
 
-
+    def _manual_cmd_thread(self, cmd):
+        if self.protocol:
+            self.shared_state = {'on_flight': 0, 'sent': 0, 'received': 0}
+            if cmd in ["CTRL X", "CTRL+X"]:
+                self.protocol.transport.write(b'\x18')
+            else:
+                send_uart_command(self.protocol, cmd)
     def start_serial(self):
         port = find_uart_port()
         if not port:
