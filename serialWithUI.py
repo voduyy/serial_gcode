@@ -14,7 +14,10 @@ from RobotGcodeGen import RobotGcodeGen
 from serial import threaded
 import queue
 import datetime
+import matplotlib.pyplot as plt
 import os
+import warnings
+from EvaluateResult import consine_similarity as validate, extract_frame
 
 ENCODING = 'utf-8'
 IMG_WIDTH = 640
@@ -217,7 +220,6 @@ class SerialCommunication(serial.threaded.LineReader):
         while time.time() - start < timeout:
             if self.stop_done:
                 return True
-            time.sleep(0.00001)
         return False
 
     def wait_for_receive_ok(self, timeout=2):
@@ -228,7 +230,6 @@ class SerialCommunication(serial.threaded.LineReader):
             with self.ok_lock:
                 if self.ok_received:
                     return True
-            time.sleep(0.00001)
         return False
 
     def get_done_count(self, max_count=36, timeout=1.0):
@@ -248,9 +249,11 @@ class SerialCommunication(serial.threaded.LineReader):
 def find_uart_port():
     ports = list_ports.comports()
     for port, desc, hwid in ports:
-        if "ttyACM" in port or "USB" in port or "ACM" in port or "COM" in port:
+        if "ttyACM" in port or "USB" in port or "ACM" in port:
+            # or "COM" in port:
             return port
     return None
+
 def send_uart_command(protocol, cmd, wait_ok=True, retries=3):
     for _ in range(retries):
         protocol.ok_received = False
@@ -268,8 +271,8 @@ def send_uart_command(protocol, cmd, wait_ok=True, retries=3):
 
 def reset_system(protocol):
     send_uart_command(protocol, "$X")
-    send_uart_command(protocol, "G28")
-    send_uart_command(protocol, "F2700")
+    send_uart_command(protocol, "F2000")
+    send_uart_command(protocol, "G1 X0 Y0 Z0 A0 B0")
     send_uart_command(protocol, "G92 X0 Y0 Z0 A0 B0")
     protocol.get_done_count()
 
@@ -338,6 +341,13 @@ def receive_gcode_response(protocol, total_cmds, shared_state, queue_lock, recei
 
 class App:
     def __init__(self, root):
+        self.gcode_lines = None
+        self.uart_log_box = None
+        self.manual_entry = None
+        self.gcode_entry = None
+        self.left_img_label = None
+        self.right_img_label = None
+        self.source_var = None
         self.root = root
         self.root.title("📟 G-code Control Panel")
         self.protocol = None
@@ -357,7 +367,7 @@ class App:
 
         self.build_gui()
         self.start_serial()
-        self.start_camera()
+        self.start_camera(1)
 
     def build_gui(self):
         img_frame = ttk.Frame(self.root)
@@ -371,7 +381,7 @@ class App:
 
         source_frame = ttk.Frame(self.root)
         source_frame.pack(pady=5)
-        self.source_var = tk.StringVar(value="in_camera")
+        self.source_var = tk.StringVar(value="ex_camera")
         ttk.Label(source_frame, text="Source:").pack(side="left")
         ttk.Radiobutton(source_frame, text="Camera Laptop", variable=self.source_var, value="in_camera", command=self.switch_source).pack(side="left")
         ttk.Radiobutton(source_frame, text="Camera ngoài", variable=self.source_var, value="ex_camera", command=self.switch_source).pack(side="left")
@@ -466,6 +476,39 @@ class App:
                 send_uart_command(self.protocol, "$X", False)
         threading.Thread(target=stop_thread, daemon=True).start()
 
+    def validate_result_window(self):
+            # if self.source_var == "ex_camera":
+            input_path = f"input_capture_excam/{global_var.index_capture_image}.jpg"
+            image_name = f"{global_var.index_capture_image}.jpg"
+            extract_frame.preprocessing(image_name)
+            original_image_path = f"Image2Gcode/output_image/{global_var.index_capture_image}_binary.jpg"
+            image_path = f"EvaluateResult/output_image/{global_var.index_capture_image}.jpg"
+            feature_similarity = validate.calculate_feature_similarity(original_image_path, image_path)
+            print(f"Feature-based similarity (Cosine similarity) with {image_path}: {feature_similarity}")
+            # Đọc ảnh để hiển thị
+            img_original = cv2.imread(original_image_path)
+            img_result = cv2.imread(image_path)
+
+            # Chuyển BGR -> RGB để hiển thị đúng màu với matplotlib
+            img_original = cv2.cvtColor(img_original, cv2.COLOR_BGR2RGB)
+            img_result = cv2.cvtColor(img_result, cv2.COLOR_BGR2RGB)
+
+            # Hiển thị ảnh và similarity
+            plt.figure(figsize=(10, 4))
+
+            plt.subplot(1, 2, 1)
+            plt.imshow(img_original)
+            plt.title("Original Binary Image")
+            plt.axis("off")
+
+            plt.subplot(1, 2, 2)
+            plt.imshow(img_result)
+            plt.title(f"Result Image\nSimilarity: {feature_similarity:.4f}")
+            plt.axis("off")
+
+            plt.tight_layout()
+            plt.show()
+
     def send_gcode_in_background(self):
         self.gcode_lines = read_gcode_file(self.gcode_file_path)
         total_cmds = len(self.gcode_lines)
@@ -508,10 +551,11 @@ class App:
         if self.cap:
             self.cap.release()
         self.cap = cv2.VideoCapture(camera_index)
-        if not self.cap.isOpened():
-            messagebox.showerror("Lỗi", "Không thể mở camera.")
-            self.cap = None
-            return
+        if self.cap.isOpened():
+            # Cấu hình camera để giảm lag
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            self.cap.set(cv2.CAP_PROP_FPS, 30)
         threading.Thread(target=self.capture_loop, daemon=True).start()
 
     def capture_loop(self):
@@ -527,30 +571,30 @@ class App:
                     image_handle_name = os.path.splitext(global_var.image_name)[0]
                     self.show_mirror = False
                     img_after_processing = (Image.open(f"Image2Gcode/output_image/{image_handle_name}_binary.jpg")
-                           .resize((500, 500)))
+                           .resize((IMG_WIDTH, IMG_HEIGHT)))
                     self.root.after(0, lambda: self.display_image(self.right_img_label, img_after_processing))
                 elif self.show_mirror:
                     self.root.after(0, lambda: self.display_image(self.right_img_label, show_img))
                 elif self.is_simulate_image:
                     image_handle_simulate_name = os.path.splitext(global_var.image_name)[0]
                     image_simulate = (Image.open(f"Image2Gcode/simulate_image/{image_handle_simulate_name}.png")
-                                            .resize((500, 500)))
+                                            .resize((640, 480)))
                     self.root.after(0, lambda: self.display_image(self.right_img_label, image_simulate))
 
             time.sleep(0.0001)
 
     def switch_source(self):
-        if self.source_var.get() == "in_camera":
-            if self.cap:
-                self.cap.release()
-            elif self.cap is None:
-                self.start_camera(camera_index=0)
+        cv2.setLogLevel(0)
+        warnings.filterwarnings("ignore")
+        # Force release camera nếu tồn tại
+        if self.cap:
+            self.cap.release()
+
+        if self.source_var.get() == "ex_camera":
+            self.start_camera(camera_index=1)
             self.show_mirror = True
         else:
-            if self.cap:
-                self.cap.release()
-            elif self.cap is None:
-                self.start_camera(camera_index=1)
+            self.start_camera(camera_index=0)
             self.show_mirror = True
 
     def choose_image(self):
@@ -575,11 +619,6 @@ class App:
         global_var.is_capture = False
         self.is_simulate_image = False
         self.show_mirror = False
-    def validate_result_window(self):
-        self.is_simulate_image = True
-        global_var.is_finish_covert_image = False
-        self.show_mirror = False
-        print("Is pressed")
 
     def capture_frame(self):
         if self.last_frame is not None:
@@ -591,7 +630,10 @@ class App:
             global_var.image_name = ""
             global_var.image_name = f"{global_var.index_capture_image}.jpg"
             img = Image.fromarray(cv2.cvtColor(self.last_frame, cv2.COLOR_BGR2RGB)).resize((IMG_WIDTH, IMG_HEIGHT))
-            img.save(f"Image2Gcode/input_image/capture/{global_var.index_capture_image}.jpg")
+            if self.source_var == "in_camera":
+                img.save(f"Image2Gcode/input_image/capture/{global_var.index_capture_image}.jpg")
+            else:
+                img.save(f"EvaluateResult/input_capture_excam/{global_var.index_capture_image}.jpg")
             self.display_image(self.right_img_label, img)
             self.show_mirror = False
             self.is_simulate_image = False
@@ -641,8 +683,11 @@ class App:
         self.root.destroy()
 
 if __name__ == "__main__":
+    # cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # 0 = all logs, 1 = filter INFO, 2 = filter WARNING, 3 = filter ERROR
+    os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
     global_var.image_name = ""
-    global_var.index_capture_image = 0
+    global_var.index_capture_image = 1
     global_var.is_capture = False
     global_var.is_finish_covert_image = False
     global_var.is_choose_image = False

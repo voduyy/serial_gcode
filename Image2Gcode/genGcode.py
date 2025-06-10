@@ -204,7 +204,7 @@ def align_face(image, face):
                              flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
     return np.clip(aligned, 0, 255).astype(np.uint8)
 
-def resize_to_a4(image, target_width=300, target_height=300):
+def resize_to_a4(image, target_width=320, target_height=240):
     h, w = image.shape[:2]
     scale = min(target_width / w, target_height / h)
     new_w, new_h = int(w * scale), int(h * scale)
