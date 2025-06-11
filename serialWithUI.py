@@ -367,7 +367,7 @@ class App:
 
         self.build_gui()
         self.start_serial()
-        self.start_camera(1)
+        self.start_camera(0)
 
     def build_gui(self):
         img_frame = ttk.Frame(self.root)
@@ -551,6 +551,7 @@ class App:
         if self.cap:
             self.cap.release()
         self.cap = cv2.VideoCapture(camera_index)
+
         if self.cap.isOpened():
             # Cấu hình camera để giảm lag
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -560,6 +561,11 @@ class App:
 
     def capture_loop(self):
         while self.running and self.cap and self.cap.isOpened():
+            if self.source_var == "ex_camera":
+                # Set MIN saturation (màu gần trắng đen)
+                self.cap.set(cv2.CAP_PROP_SATURATION, 0)
+                # Set MAX brightness (hình sáng nhất có thể)
+                self.cap.set(cv2.CAP_PROP_BRIGHTNESS, 255)
             ret, frame = self.cap.read()
             if ret:
                 frame = cv2.flip(frame, 1)
@@ -647,7 +653,6 @@ class App:
                         img = Image.open(image_path)
                         img = img.resize((int(1836 * 480 / 3264), 480), Image.LANCZOS)
                         self.right_img_label.after(0, lambda: self.display_image(self.right_img_label, img))
-
                         self.show_mirror = False
                         self.is_simulate_image = False
                         global_var.is_capture = False

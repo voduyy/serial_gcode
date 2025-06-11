@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 import os
 from EvaluateResult import helper_image
-
+from PIL import ImageEnhance, ImageFilter
 # === Hàm resize giữ nguyên tỉ lệ, thêm padding trắng ===
 def resize_with_padding(image, target_size=(320, 240), fill_color=(255, 255, 255)):
     original_ratio = image.width / image.height # Tính tỉ lệ gốc của ảnh
@@ -18,12 +18,10 @@ def resize_with_padding(image, target_size=(320, 240), fill_color=(255, 255, 255
         new_width = round(new_height * original_ratio)  # Resize theo chiều dọc
 
     resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-    resized_image_cv = np.array(resized_image)[:, :, ::-1]  # Convert RGB (PIL) to BGR (OpenCV)
-    resized_image_cv_rgb = cv2.cvtColor(resized_image_cv, cv2.COLOR_BGR2RGB)
-    new_image = helper_image.filter_color(resized_image_cv_rgb) # lọc màu
-    # Chuyển lại PIL.Image sau khi xử lý
-    final_image = Image.fromarray(new_image)
-    return final_image
+    new_image = Image.new("RGB", target_size, fill_color) # Tạo ảnh nền trắng 320x240
+    offset = ((target_size[0] - new_width) // 2, (target_size[1] - new_height) // 2) # Căn giữa ảnh nhỏ lên nền
+    new_image.paste(resized_image, offset) # Ghép vào giữa
+    return new_image
 
 def preprocessing(img_name):
 # # === Xử lý từng ảnh ===
@@ -33,6 +31,7 @@ def preprocessing(img_name):
     full_path = os.path.join(base_dir, "input_capture_excam", img_name)
 
     img = cv2.imread(full_path)
+    # img = cv2.flip(img, 1)
     if img is None:
         return None
     # === Thư mục đầu ra ===
@@ -40,7 +39,8 @@ def preprocessing(img_name):
     output_inside_dir = 'output_image' # đầu ra chỉ còn ảnh bên trong khung
     os.makedirs(output_frame_dir, exist_ok=True)
     os.makedirs(output_inside_dir, exist_ok=True)
-
+    filtered = helper_image.filter_color(img)
+    img = cv2.cvtColor(filtered, cv2.COLOR_GRAY2BGR)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     _, thresh = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY_INV)  # Nhị phân hóa để dễ tìm khung
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)  # Tìm contour ngoài cùng
@@ -58,10 +58,10 @@ def preprocessing(img_name):
         x, y, w, h = cv2.boundingRect(frame_contour)  # Lấy tọa độ khung chữ nhật
 
         # # === output_frame: CÓ KHUNG, không resize ===
-        # frame_crop = img[y:y + h, x:x + w]  # Cắt nguyên khung
+        frame_crop = img[y:y + h, x:x + w]  # Cắt nguyên khung
         frame_filename = img_name
-        # frame_path = os.path.join(output_frame_dir, frame_filename)
-        # cv2.imwrite(frame_path, frame_crop)
+        frame_path = os.path.join(output_frame_dir, frame_filename)
+        cv2.imwrite(frame_path, frame_crop)
 
         # === output_insideFrame: KHÔNG KHUNG, có resize giữ tỉ lệ ===
         margin = 5  # loại bỏ viền khung
@@ -69,8 +69,12 @@ def preprocessing(img_name):
         pil_image = Image.fromarray(cv2.cvtColor(inner_crop, cv2.COLOR_BGR2RGB))  # Chuyển sang RGB
         resized = resize_with_padding(pil_image, target_size=(320, 240))
         resized = resized.convert("RGB")
-        inside_path = os.path.join(base_dir,output_inside_dir, frame_filename)
-        resized.save(inside_path, dpi=(300, 300))
+
+        # Làm sắc nét ảnh bằng PIL
+        resized = resized.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+
+        inside_path = os.path.join(base_dir, output_inside_dir, frame_filename)
+        resized.save(inside_path, dpi=(600, 600), quality=100, progressive=True)
 
         print(f"✅ OK: {os.path.basename(full_path)} → xử lý thành công")
         return None
