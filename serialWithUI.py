@@ -364,6 +364,9 @@ class App:
         self.gcode_file_path = None
         self.gcode_path_var = tk.StringVar(value="Chưa chọn file G-code")
         self.start_recv_thread()
+        self.ok_received = False
+        self.done_queue = queue.Queue()
+        self.ok_queue = queue.Queue()
 
         self.build_gui()
         self.start_serial()
@@ -692,7 +695,7 @@ if __name__ == "__main__":
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # 0 = all logs, 1 = filter INFO, 2 = filter WARNING, 3 = filter ERROR
     os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
     global_var.image_name = ""
-    global_var.index_capture_image = 1
+    global_var.index_capture_image = 2
     global_var.is_capture = False
     global_var.is_finish_covert_image = False
     global_var.is_choose_image = False

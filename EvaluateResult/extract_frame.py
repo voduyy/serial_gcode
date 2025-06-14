@@ -21,7 +21,7 @@ def resize_with_padding(image, target_size=(320, 240), fill_color=(255, 255, 255
     new_image = Image.new("RGB", target_size, fill_color) # Tạo ảnh nền trắng 320x240
     offset = ((target_size[0] - new_width) // 2, (target_size[1] - new_height) // 2) # Căn giữa ảnh nhỏ lên nền
     new_image.paste(resized_image, offset) # Ghép vào giữa
-    return new_image
+    return resized_image
 
 def preprocessing(img_name):
 # # === Xử lý từng ảnh ===
@@ -70,11 +70,11 @@ def preprocessing(img_name):
         resized = resize_with_padding(pil_image, target_size=(320, 240))
         resized = resized.convert("RGB")
 
-        # Làm sắc nét ảnh bằng PIL
-        resized = resized.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
+        # # Làm sắc nét ảnh bằng PIL
+        # resized = resized.filter(ImageFilter.UnsharpMask(radius=2, percent=150, threshold=3))
 
         inside_path = os.path.join(base_dir, output_inside_dir, frame_filename)
-        resized.save(inside_path, dpi=(600, 600), quality=100, progressive=True)
+        resized.save(inside_path, dpi=(1280, 960), quality=100, progressive=True)
 
         print(f"✅ OK: {os.path.basename(full_path)} → xử lý thành công")
         return None

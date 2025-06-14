@@ -26,7 +26,6 @@ STEP_CONVERT = {
     'X': 0.355555,
     'Y': 0.355555,
     'Z': 0.216666,
-    'A': 0.133333,
 }
 def compute_gcode_line(cmd, x, y, z, q0=None, max_attempts=10):
     # Mục tiêu: Y luôn là [0, -1, 0]
